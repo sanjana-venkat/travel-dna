@@ -177,11 +177,17 @@ async function googleRouteMatrix(stops, transportMode, date, startMinutes) {
   return matrix;
 }
 
-function optimizeHamiltonianPath(stops, matrix, date) {
+function normalizeEndMinutes(startMinutes, endMinutes) {
+  if (endMinutes == null) return null;
+  return endMinutes <= startMinutes ? endMinutes + 24 * 60 : endMinutes;
+}
+
+function optimizeHamiltonianPath(stops, matrix, date, requestedStartMinutes, requestedEndMinutes) {
   const count = stops.length;
-  if (count === 1) return { order: [0], totalCost: 0, travelSeconds: 0, distanceMeters: 0 };
   const earliestSignal = Math.min(...stops.map(targetMinutes));
-  const startMinutes = Math.max(6 * 60, Math.min(21 * 60, earliestSignal));
+  const startMinutes = requestedStartMinutes ?? Math.max(6 * 60, Math.min(21 * 60, earliestSignal));
+  const endMinutes = normalizeEndMinutes(startMinutes, requestedEndMinutes);
+  if (count === 1) return { order: [0], totalCost: 0, travelSeconds: 0, distanceMeters: 0, startMinutes, endMinutes };
   const size = 1 << count;
   const dp = Array.from({ length: size }, () => Array(count).fill(null));
 
@@ -224,13 +230,17 @@ function optimizeHamiltonianPath(stops, matrix, date) {
     }
   }
 
-  const best = dp[size - 1].filter(Boolean).sort((a, b) => a.cost - b.cost)[0];
+  const best = dp[size - 1].filter(Boolean).sort((a, b) => {
+    const score = (state) => state.cost + (endMinutes == null ? 0 : Math.max(0, state.clockMinutes - endMinutes) * 180);
+    return score(a) - score(b);
+  })[0];
   return {
     order: best.order,
-    totalCost: Math.round(best.cost),
+    totalCost: Math.round(best.cost + (endMinutes == null ? 0 : Math.max(0, best.clockMinutes - endMinutes) * 180)),
     travelSeconds: Math.round(best.travelSeconds),
     distanceMeters: Math.round(best.distanceMeters),
-    startMinutes
+    startMinutes,
+    endMinutes
   };
 }
 
@@ -243,10 +253,11 @@ function dpBitCount(value) {
   return count;
 }
 
-function summarizeFixedOrder(stops, matrix) {
+function summarizeFixedOrder(stops, matrix, requestedStartMinutes, requestedEndMinutes) {
   const order = stops.map((_, index) => index);
   const earliestSignal = Math.min(...stops.map(targetMinutes));
-  const startMinutes = Math.max(6 * 60, Math.min(21 * 60, earliestSignal));
+  const startMinutes = requestedStartMinutes ?? Math.max(6 * 60, Math.min(21 * 60, earliestSignal));
+  const endMinutes = normalizeEndMinutes(startMinutes, requestedEndMinutes);
   let travelSeconds = 0;
   let distanceMeters = 0;
   for (let index = 1; index < order.length; index += 1) {
@@ -259,7 +270,8 @@ function summarizeFixedOrder(stops, matrix) {
     totalCost: Math.round(travelSeconds),
     travelSeconds: Math.round(travelSeconds),
     distanceMeters: Math.round(distanceMeters),
-    startMinutes
+    startMinutes,
+    endMinutes
   };
 }
 
@@ -271,7 +283,9 @@ export default async function handler(req, res) {
   const transportMode = req.body?.transportMode || "Car";
   const date = req.body?.date;
   const preserveOrder = Boolean(req.body?.preserveOrder);
-  const startMinutes = Math.min(...stops.map(targetMinutes));
+  const requestedStartMinutes = parseClock(req.body?.startTime || "");
+  const requestedEndMinutes = parseClock(req.body?.endTime || "");
+  const startMinutes = requestedStartMinutes ?? Math.min(...stops.map(targetMinutes));
   let matrix;
   let matrixSource = "google-routes";
   let routeWarning = null;
@@ -285,8 +299,8 @@ export default async function handler(req, res) {
   }
 
   const optimized = preserveOrder
-    ? summarizeFixedOrder(stops, matrix)
-    : optimizeHamiltonianPath(stops, matrix, date);
+    ? summarizeFixedOrder(stops, matrix, requestedStartMinutes, requestedEndMinutes)
+    : optimizeHamiltonianPath(stops, matrix, date, requestedStartMinutes, requestedEndMinutes);
   let clockMinutes = optimized.startMinutes;
   const orderedStops = optimized.order.map((index, position) => {
     const previousIndex = position ? optimized.order[position - 1] : null;
@@ -314,6 +328,11 @@ export default async function handler(req, res) {
       travelSeconds: optimized.travelSeconds,
       distanceMeters: optimized.distanceMeters,
       startMinutes: optimized.startMinutes,
+      endMinutes: optimized.endMinutes,
+      requestedTimeRange: {
+        startTime: req.body?.startTime || null,
+        endTime: req.body?.endTime || null
+      },
       optimizedAt: new Date().toISOString()
     }
   });

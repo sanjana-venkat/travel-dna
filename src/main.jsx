@@ -267,9 +267,16 @@ function buildGoogleMapsTripUrl(stops = [], travelMode = "driving") {
   return url;
 }
 
-function stablePlanFingerprint(stops, date, transportMode) {
+function stablePlanFingerprint(stops, date, startTime, endTime, transportMode) {
   const identities = stops.map((stop) => stop.placeId || `${stop.name}|${stop.address || ""}`).sort();
-  const input = JSON.stringify({ identities, date, transportMode: transportMode || "Car", version: 2 });
+  const input = JSON.stringify({
+    identities,
+    date,
+    startTime: startTime || null,
+    endTime: endTime || null,
+    transportMode: transportMode || "Car",
+    version: 3
+  });
   let hash = 2166136261;
   for (let index = 0; index < input.length; index += 1) {
     hash ^= input.charCodeAt(index);
@@ -474,6 +481,32 @@ function specialTimingNote(stop) {
 
 function getToday() { return new Date().toISOString().slice(0, 10); }
 
+function formatDateForInput(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || "");
+  return match ? `${match[2]}/${match[3]}/${match[1]}` : "";
+}
+
+function formatDateDraft(value) {
+  const digits = String(value || "").replace(/\D/g, "").slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+}
+
+function parseDateInput(value) {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value || "");
+  if (!match) return null;
+  const [, month, day, year] = match;
+  const candidate = new Date(`${year}-${month}-${day}T12:00:00`);
+  if (
+    Number.isNaN(candidate.getTime())
+    || candidate.getFullYear() !== Number(year)
+    || candidate.getMonth() + 1 !== Number(month)
+    || candidate.getDate() !== Number(day)
+  ) return null;
+  return `${year}-${month}-${day}`;
+}
+
 function prettyDate(value) {
   if (!value) return "Today";
   const date = new Date(`${value}T12:00:00`);
@@ -607,6 +640,7 @@ function App() {
   const [endAutocompleteError, setEndAutocompleteError] = useState("");
   const [showEndDestinationSuggestions, setShowEndDestinationSuggestions] = useState(false);
   const [date, setDate] = useState(getToday());
+  const [dateInput, setDateInput] = useState(() => formatDateForInput(getToday()));
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
   const [diet, setDiet] = useState("Vegetarian");
@@ -761,6 +795,10 @@ function App() {
   useEffect(() => {
     gameProgressRef.current = loadingPct;
   }, [loadingPct]);
+
+  useEffect(() => {
+    setDateInput(formatDateForInput(date));
+  }, [date]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1096,6 +1134,8 @@ function App() {
           body: JSON.stringify({
             stops,
             date,
+            startTime: startTime || null,
+            endTime: endTime || null,
             transportMode: transportMode || "Car",
             preserveOrder: true
           })
@@ -1176,7 +1216,7 @@ function App() {
 
   async function runAiOutdo() {
     if (!selectedStops.length || outdoLoading) return;
-    const fingerprint = stablePlanFingerprint(selectedStops, date, transportMode);
+    const fingerprint = stablePlanFingerprint(selectedStops, date, startTime, endTime, transportMode);
     const cachedPlanId = localStorage.getItem(`outdoneRouteCache:${fingerprint}`);
 
     if (cachedPlanId && localStorage.getItem(`outdonePlan:${cachedPlanId}`)) {
@@ -1199,7 +1239,14 @@ function App() {
       const response = await fetch("/api/optimize-route", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stops: selectedStops, date, transportMode: transportMode || "Car", unitSystem: usesImperialDistance(destination) ? "imperial" : "metric" })
+        body: JSON.stringify({
+          stops: selectedStops,
+          date,
+          startTime: startTime || null,
+          endTime: endTime || null,
+          transportMode: transportMode || "Car",
+          unitSystem: usesImperialDistance(destination) ? "imperial" : "metric"
+        })
       });
       const data = await response.json();
       if (!response.ok || !data.orderedStops?.length) throw new Error(data.error || "AI Outdo could not optimize this route.");
@@ -1209,6 +1256,8 @@ function App() {
         id: planId,
         fingerprint,
         date,
+        startTime: startTime || null,
+        endTime: endTime || null,
         destination,
         endDestination,
         transportMode: transportMode || "Car",
@@ -1844,12 +1893,48 @@ function App() {
 
             <div className="setup-card">
               <span className="setup-card-label">WHEN</span>
-              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="setup-card-input" />
+              <input
+                type="text"
+                value={dateInput}
+                onChange={(event) => {
+                  const nextValue = formatDateDraft(event.target.value);
+                  setDateInput(nextValue);
+                  const parsedDate = parseDateInput(nextValue);
+                  if (parsedDate) setDate(parsedDate);
+                }}
+                onBlur={() => {
+                  if (!parseDateInput(dateInput)) setDateInput(formatDateForInput(date));
+                }}
+                placeholder="MM/DD/YYYY"
+                inputMode="numeric"
+                maxLength={10}
+                aria-label="Date in MM/DD/YYYY format"
+                className="setup-card-input"
+              />
               <div className="setup-card-divider" />
-              <label className="setup-end-time">
-                <span className="setup-card-label">END TIME <span className="setup-card-optional">— optional</span></span>
-                <input type="time" value={endTime} onChange={(event) => setEndTime(event.target.value)} className="setup-card-input" />
-              </label>
+              <span className="setup-card-label">TIME RANGE <span className="setup-card-optional">— optional</span></span>
+              <div className="setup-time-grid">
+                <label>
+                  <span className="setup-time-label">START</span>
+                  <input
+                    type="time"
+                    value={startTime}
+                    onChange={(event) => setStartTime(event.target.value)}
+                    aria-label="Start time"
+                    className="setup-card-input"
+                  />
+                </label>
+                <label>
+                  <span className="setup-time-label">END</span>
+                  <input
+                    type="time"
+                    value={endTime}
+                    onChange={(event) => setEndTime(event.target.value)}
+                    aria-label="End time"
+                    className="setup-card-input"
+                  />
+                </label>
+              </div>
             </div>
 
             <div className="setup-card">
