@@ -268,7 +268,7 @@ export default async function handler(req, res) {
   const stops = Array.isArray(req.body?.stops) ? req.body.stops.slice(0, 10) : [];
   if (!stops.length) return res.status(400).json({ error: "Select at least one place." });
 
-  const transportMode = req.body?.transportMode || "Walking";
+  const transportMode = req.body?.transportMode || "Car";
   const date = req.body?.date;
   const preserveOrder = Boolean(req.body?.preserveOrder);
   const startMinutes = Math.min(...stops.map(targetMinutes));

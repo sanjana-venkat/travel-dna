@@ -1,6 +1,7 @@
 /* eslint-disable no-unused-vars, no-empty, react-refresh/only-export-components, react-hooks/exhaustive-deps */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import FlightGame from "./FlightGame.jsx";
 import "./styles.css";
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
@@ -41,8 +42,12 @@ function priceLabel(p) {
 
 function priceRange(p) {
   const label = priceLabel(p);
-  const ranges = { "$": "$10–20", "$$": "$20–50", "$$$": "$50–100", "$$$$": "$100+" };
+  const ranges = { "$": "$10–20", "$$": "$20–30", "$$$": "$50–100", "$$$$": "$100+" };
   return label ? ranges[label] : null;
+}
+
+function joinRequirements(chips = [], draft = "") {
+  return [...chips, draft.trim()].filter(Boolean).join("; ");
 }
 
 // Nearest-neighbor ordering by coordinates when available
@@ -89,18 +94,160 @@ const loginItins = {
 };
 
 const moodActivitySuggestions = {
-  adventurous: ["Ziplining", "Cliff jumping", "Paragliding", "White-water rafting", "Bungee jump"],
-  "slow-scenic": ["Sunset boat ride", "Lakeside cafe", "Golden hour picnic", "Scenic ferry crossing"],
-  cultural: ["Museum deep-dive", "Historic walking tour", "Temple visit", "Local artisan market"],
-  culinary: ["Street food crawl", "Cooking class", "Food market tour", "Chef's tasting menu"],
-  offbeat: ["Hidden speakeasy", "Tiny obscure museum", "Secret garden", "Underground art venue"],
-  social: ["Rooftop bar", "Night market", "Live music venue", "Group cooking class"],
-  active: ["Kayaking", "Sunrise hike", "Bike tour", "Paddleboarding"],
-  "night-owl": ["Jazz bar", "Stargazing", "Night market crawl", "Midnight rooftop views"],
-  romantic: ["Sunset beach walk", "Candlelit dinner", "Stargazing", "Golden hour viewpoint"],
+  adventurous: ["places with ziplining", "a guided cliff-jumping experience", "beginner-friendly paragliding", "white-water rafting with safety gear", "a memorable bungee jump"],
+  "slow-scenic": ["a quiet sunset boat ride", "a lakeside cafe with a view", "a golden-hour picnic spot", "a scenic ferry crossing"],
+  cultural: ["a museum worth a deep dive", "a history-focused walking tour", "a peaceful temple visit", "a local artisan market"],
+  culinary: ["a street-food crawl", "a hands-on cooking class", "a food market locals love", "a chef's tasting menu"],
+  offbeat: ["a hidden speakeasy", "a tiny obscure museum", "a secret garden", "an underground art venue"],
+  social: ["a lively rooftop bar", "a busy night market", "a local live-music venue", "a group-friendly cooking class"],
+  active: ["a beginner-friendly kayaking route", "a sunrise hike", "a guided bike tour", "a paddleboarding spot"],
+  "night-owl": ["a late-night jazz bar", "a quiet stargazing spot", "a night-market crawl", "midnight rooftop views"],
+  romantic: ["a sunset beach walk", "a candlelit dinner", "a quiet stargazing spot", "a golden-hour viewpoint"],
 };
 
-function buildGoogleMapsTripUrl(stops = [], travelMode = "walking") {
+const universalRequirementSuggestions = [
+  "budget under $60",
+  "wheelchair accessible places",
+  "restaurants within $10–$20",
+  "avoid large crowds",
+  "mostly indoor activities",
+  "kid-friendly places with restrooms",
+];
+
+const DESKTOP_LOADER_PATH = "M78 516 C190 385 260 588 374 412 C475 258 554 356 626 238 C724 78 830 190 878 322 C922 444 1014 428 1122 218";
+const MOBILE_LOADER_PATH = "M600 592 C510 532 690 470 600 408 C505 340 695 282 600 216 C535 170 660 120 600 72";
+const DESKTOP_LOADER_NODES = [[78, 516], [374, 412], [626, 238], [878, 322], [1122, 218]];
+const MOBILE_LOADER_NODES = [[600, 592], [586, 465], [600, 338], [610, 207], [600, 72]];
+const DESKTOP_GAME_HURDLES = [
+  { x: 260, y: 484, threshold: 24, icon: "🌿", label: "garden" },
+  { x: 508, y: 326, threshold: 45, icon: "🏛️", label: "museum" },
+  { x: 760, y: 188, threshold: 67, icon: "🌵", label: "cactus" },
+  { x: 997, y: 384, threshold: 86, icon: "🏢", label: "building" },
+];
+const MOBILE_GAME_HURDLES = [
+  { x: 570, y: 472, threshold: 24, icon: "🌿", label: "garden" },
+  { x: 626, y: 354, threshold: 45, icon: "🏛️", label: "museum" },
+  { x: 570, y: 246, threshold: 67, icon: "🌵", label: "cactus" },
+  { x: 624, y: 132, threshold: 86, icon: "🏢", label: "building" },
+];
+
+const TRAVEL_GAME_STORIES = {
+  runner: [
+    { id: "home", label: "Escape the morning", sky: "🌤️", backdrop: "🏠  🏘️  🌳", obstacles: ["💻", "🛏️", "📱", "☕"], intro: "Alarm off. Escape the workday and start the trip!", win: "Great — you escaped work!", miss: "Your laptop won. Respawning…" },
+    { id: "street", label: "Catch the connection", sky: "☀️", backdrop: "🏙️  🚦  🚉", obstacles: ["🚗", "🚶", "🐦", "🪧"], intro: "The connection is leaving. Thread through the city!", win: "Perfect timing — you caught the connection!", miss: "A commuter collision. Back on your feet…" },
+    { id: "airport", label: "Airport sprint", sky: "✈️", backdrop: "🛫  🛂  🛄", obstacles: ["🧳", "🛂", "🧺", "🚧"], intro: "Final boarding. Clear security and reach the gate!", win: "Gate reached — destination unlocked!", miss: "Security sent you back. Quick respawn…" },
+  ],
+  car: [
+    { id: "garage", label: "Garage getaway", sky: "🌤️", backdrop: "🏠  🅿️  🏢", obstacles: ["🚧", "📦", "🛒", "☕"], intro: "Keys found. Escape the garage without spilling the coffee!", win: "Clean exit — road trip started!", miss: "Tiny fender-bender. New car arriving…" },
+    { id: "traffic", label: "City traffic", sky: "☀️", backdrop: "🏙️  🚦  🌉", obstacles: ["🚕", "🚲", "🕳️", "🚚"], intro: "Rush hour ahead. Jump the chaos and keep moving!", win: "You beat rush hour!", miss: "Traffic won that round. Back on the road…" },
+    { id: "open-road", label: "Destination drive", sky: "🌄", backdrop: "🛣️  ⛰️  🌲", obstacles: ["🦌", "🪨", "🚜", "🧳"], intro: "Open road. Follow the landscape to your destination!", win: "Scenic route cleared — destination unlocked!", miss: "Wrong turn. Recalculating dramatically…" },
+  ],
+  train: [
+    { id: "platform", label: "Platform dash", sky: "🚉", backdrop: "🏙️  🚆  🕰️", obstacles: ["🧳", "🚶", "🪧", "☕"], intro: "Doors are closing. Clear the platform!", win: "All aboard — perfect connection!", miss: "Missed that carriage. The next one is here…" },
+    { id: "metro", label: "Metro tunnels", sky: "💡", backdrop: "🚇  🚦  🧱", obstacles: ["🚧", "🔌", "🐦", "🧰"], intro: "Signals ahead. Duck the wires and clear the tunnel!", win: "Signal green — express route unlocked!", miss: "Signal red. Resetting the train…" },
+    { id: "scenic-rail", label: "Scenic rail", sky: "🌄", backdrop: "🚆  ⛰️  🌲", obstacles: ["🪨", "🌲", "🦌", "🌉"], intro: "The city is behind you. Ride into the destination landscape!", win: "Final station reached — destination unlocked!", miss: "A very theatrical derailment. Back on track…" },
+  ],
+};
+
+function travelGameMode(transportMode = "") {
+  if (!transportMode || transportMode === "Car") return "car";
+  if (transportMode === "Public transit") return "train";
+  return "runner";
+}
+
+function destinationGameTheme(destination = "") {
+  const value = destination.toLowerCase();
+  if (/udaipur|rajasthan/.test(value)) return { className: "udaipur", icons: "🏰  🌊  ⛰️", label: "Udaipur horizon" };
+  if (/desert|sahara|dubai|abu dhabi|emirates|saudi|qatar|oman|morocco|egypt|jordan|namibia|arizona|nevada/.test(value)) return { className: "desert", icons: "🏜️  🐪  🌵", label: "desert horizon" };
+  if (/beach|island|coast|seaside|hawaii|bali|maldives|caribbean|goa|sri lanka|philippines|fiji|mauritius|seychelles|miami|cancun|phuket|amalfi|santorini|ibiza|mallorca|croatia/.test(value)) return { className: "coast", icons: "🌴  🌊  ⛵", label: "coastal horizon" };
+  if (/mountain|alps|himalaya|swiss|switzerland|nepal|bhutan|austria|colorado|patagonia|dolomites|andes|banff|rockies/.test(value)) return { className: "mountain", icons: "🏔️  🌲  🦅", label: "mountain horizon" };
+  if (/india|italy|spain|turkey|mexico|kyoto|rome|florence|venice|prague|vienna|budapest|lisbon|porto|seville|agra|jaipur|varanasi|istanbul/.test(value)) return { className: "historic", icons: "🏛️  🏰  🕍", label: "heritage horizon" };
+  if (/china|japan|korea|singapore|hong kong|new york|london|paris|tokyo|seoul|shanghai|beijing|chicago|toronto|sydney|melbourne|berlin|city/.test(value)) return { className: "city", icons: "🏙️  🏮  🚄", label: "city horizon" };
+  return { className: "landscape", icons: "🌄  🌳  🏘️", label: "destination horizon" };
+}
+
+function discoveryLinksForStop(stop = {}, destination = "") {
+  // Only surface a source badge when this specific stop was genuinely found
+  // via that channel (set by the model as discoverySource) — not decoration
+  // on every card. Most stops will have none, and that's the point: the
+  // badge is a signal of real search diversity, not a stock link set.
+  const source = String(stop.discoverySource || "").trim().toLowerCase();
+  if (source !== "reddit" && source !== "instagram") return [];
+  const subject = `${stop.name || "travel ideas"} ${destination}`.trim();
+  const label = source === "reddit" ? "Reddit" : "Instagram";
+  const url = source === "reddit"
+    ? `https://www.google.com/search?q=${encodeURIComponent(`site:reddit.com ${subject}`)}`
+    : `https://www.google.com/search?q=${encodeURIComponent(`site:instagram.com ${subject}`)}`;
+  return [{ label, url }];
+}
+
+function isRestaurantStop(stop = {}) {
+  return Boolean(stop.mealRole) || /restaurant|cafe|café|bar|bakery|food|dining|brunch|breakfast|lunch|dinner|drinks/i.test(
+    `${stop.category || ""} ${stop.description || ""}`
+  );
+}
+
+function openTableBookingUrl(stop = {}, destination = "", tripDate = "", planFor = "") {
+  if (!isRestaurantStop(stop)) return null;
+  if (/^https?:\/\//i.test(stop.bookingUrl || "")) return stop.bookingUrl;
+  const partySize = planFor === "Solo" ? 1 : /Family|Friends|Colleagues|Kid friendly/i.test(planFor) ? 4 : 2;
+  const hour = /breakfast/i.test(stop.mealRole || "") ? "09:00:00"
+    : /brunch|lunch/i.test(stop.mealRole || "") ? "12:30:00"
+      : /coffee|snack|dessert/i.test(stop.mealRole || "") ? "15:00:00"
+        : "19:00:00";
+  const params = new URLSearchParams({
+    term: `${stop.googlePlaceName || stop.name || ""} ${stop.address || destination}`.trim(),
+    covers: String(partySize)
+  });
+  if (/^\d{4}-\d{2}-\d{2}$/.test(tripDate || "")) params.set("dateTime", `${tripDate}T${hour}`);
+  return `https://www.opentable.com/s?${params.toString()}`;
+}
+
+function contextualRequirementSuggestions({ query, planFor, diet, transportMode }) {
+  const typed = String(query || "").trim().toLowerCase();
+  if (typed.length < 2) return [];
+  const foodPreference = /vegetarian|vegan|gluten|halal|kosher/i.test(diet || "") ? `${diet.toLowerCase()} ` : "";
+  const walkable = transportMode === "Walking" ? "walkable " : "";
+  const sharedMeal = /Colleagues|Friends|Family|Kid friendly/.test(planFor || "") ? "restaurants with shareable menus" : "small regional restaurants";
+  const groups = [
+    {
+      aliases: ["chin", "chinese", "chinese res", "chinatown", "dim sum"],
+      values: [
+        `${foodPreference}Chinese restaurants with regional specialties`,
+        "a Chinatown food crawl with three distinct stops",
+        "dim sum with excellent vegetarian choices",
+        "traditional Chinese tea houses",
+        sharedMeal,
+      ],
+    },
+    {
+      aliases: ["res", "restaurant", "dinner", "lunch", "food", "eat"],
+      values: [
+        `${foodPreference}restaurants known for one signature dish`,
+        "a memorable dinner away from the tourist crowds",
+        "restaurants within $10–$20",
+        `a ${walkable}neighborhood food crawl`,
+        sharedMeal,
+      ],
+    },
+    { aliases: ["temple", "temples", "shrine", "spiritual"], values: ["temples with exceptional architecture", "peaceful sunrise temple visits", "living temples known for local rituals", "lesser-known temple complexes", "temple towns worth a day trip", "temple gardens with quiet places to pause"] },
+    { aliases: ["coffee", "cafe", "café"], values: ["quiet cafes with a strong local identity", `a ${walkable}specialty coffee crawl`, "coffee shops with plenty of seating", "historic cafes with excellent pastries"] },
+    { aliases: ["museum", "art", "culture", "gallery"], values: ["small museums with unusual collections", `a ${walkable}independent gallery route`, "cultural places locals repeatedly recommend", "hands-on museums worth lingering in"] },
+    { aliases: ["park", "outdoor", "nature", "garden", "hike"], values: ["easy outdoor activities with memorable views", "scenic parks with places to rest", `a ${walkable}garden route`, "short trails with a strong sense of place"] },
+    { aliases: ["bar", "night", "drink", "music"], values: ["lively bars with a distinctive atmosphere", "live music with room for conversation", "a late-night neighborhood crawl", "low-key cocktail bars locals return to"] },
+    { aliases: ["shop", "market", "souvenir"], values: ["markets known for local crafts", "independent shops and working makers", `a ${walkable}shopping street`, "food markets with regional specialties"] },
+    { aliases: ["wheel", "access", "mobility"], values: ["wheelchair accessible places", "step-free restaurants and attractions", "accessible restrooms along the route"] },
+    { aliases: ["budget", "cheap", "under", "$"], values: ["a full day under $60", "free or low-cost places", "restaurants within $10–$20"] },
+  ];
+  const matched = groups.filter((group) => group.aliases.some((alias) => alias.includes(typed) || typed.includes(alias)));
+  const results = matched.flatMap((group) => group.values);
+  if (!results.length && typed.length >= 4) {
+    results.push(`${typed} with a distinctive local angle`, `${typed} locals recommend`, `lesser-known ${typed}`);
+  }
+  return [...new Set(results)].slice(0, 6);
+}
+
+function buildGoogleMapsTripUrl(stops = [], travelMode = "driving") {
   const routeStops = stops.filter((stop) => stop.googlePlaceName || stop.name || stop.photoQuery).slice(0, 10);
   const names = routeStops.map((stop) => stop.googlePlaceName || stop.name || stop.photoQuery);
   if (!names.length) return "";
@@ -122,7 +269,7 @@ function buildGoogleMapsTripUrl(stops = [], travelMode = "walking") {
 
 function stablePlanFingerprint(stops, date, transportMode) {
   const identities = stops.map((stop) => stop.placeId || `${stop.name}|${stop.address || ""}`).sort();
-  const input = JSON.stringify({ identities, date, transportMode: transportMode || "Walking", version: 2 });
+  const input = JSON.stringify({ identities, date, transportMode: transportMode || "Car", version: 2 });
   let hash = 2166136261;
   for (let index = 0; index < input.length; index += 1) {
     hash ^= input.charCodeAt(index);
@@ -138,8 +285,20 @@ function formatTripDuration(seconds) {
   return hours ? `${hours}h ${remainder ? `${remainder}m` : ""}`.trim() : `${remainder}m`;
 }
 
-function formatTripDistance(meters) {
-  return `${(Number(meters || 0) / 1000).toFixed(Number(meters || 0) >= 10000 ? 0 : 1)} km`;
+function usesImperialDistance(place = "") {
+  return /\b(usa|united states|u\.s\.|united kingdom|uk|england|scotland|wales|northern ireland|liberia|myanmar)\b/i.test(place)
+    || /\b(london|manchester|birmingham|liverpool|leeds|glasgow|edinburgh|cardiff|belfast)\b/i.test(place)
+    || /,\s*[A-Z]{2}(?:,|\s|$)/.test(place);
+}
+
+function formatTripDistance(meters, place = "") {
+  const value = Number(meters || 0);
+  if (usesImperialDistance(place)) {
+    const miles = value / 1609.344;
+    return `${miles.toFixed(miles >= 10 ? 0 : 1)} mi`;
+  }
+  const kilometers = value / 1000;
+  return `${kilometers.toFixed(kilometers >= 10 ? 0 : 1)} km`;
 }
 
 function parseStopMinutes(stop = {}) {
@@ -223,6 +382,87 @@ function openingSummary(stop, tripDate) {
     return `${dateLabel} · ${hours}`;
   }
   return stop?.openTimingGuidance ? `${dateLabel} · ${stop.openTimingGuidance}` : null;
+}
+
+function parseClockMinutes(value = "") {
+  const match = String(value).trim().match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)/i);
+  if (!match) return null;
+  let hour = Number(match[1]);
+  const minute = Number(match[2] || 0);
+  const meridiem = match[3].toUpperCase();
+  if (meridiem === "PM" && hour !== 12) hour += 12;
+  if (meridiem === "AM" && hour === 12) hour = 0;
+  return hour * 60 + minute;
+}
+
+function scheduledOpenStatus(stop, tripDate) {
+  const selectedDate = new Date(`${tripDate || getToday()}T12:00:00`);
+  const day = selectedDate.toLocaleDateString("en-US", { weekday: "long" });
+  const line = Array.isArray(stop?.openingHours)
+    ? stop.openingHours.find((item) => item.toLowerCase().startsWith(day.toLowerCase()))
+    : null;
+  if (!line) return { label: stop?.openTimingGuidance || "Confirm hours", warning: "" };
+  const hours = line.slice(line.indexOf(":") + 1).trim();
+  if (/open 24 hours/i.test(hours)) return { label: "Open at your visit time", warning: "" };
+  if (/closed/i.test(hours)) return { label: `Closed ${day}`, warning: `${stop.name} is closed on ${day}. Choose another day or replace this stop.` };
+  const visit = parseStopMinutes(stop);
+  if (visit == null) return { label: hours, warning: "" };
+  const ranges = [...hours.matchAll(/(\d{1,2}(?::\d{2})?\s*(?:AM|PM))\s*[–—-]\s*(\d{1,2}(?::\d{2})?\s*(?:AM|PM))/gi)]
+    .map((match) => ({ start: parseClockMinutes(match[1]), end: parseClockMinutes(match[2]), endLabel: match[2], startLabel: match[1] }))
+    .filter((range) => range.start != null && range.end != null);
+  if (!ranges.length) return { label: hours, warning: "" };
+  const active = ranges.find((range) => visit >= range.start && visit <= range.end);
+  if (active) return { label: `Open until ${active.endLabel}`, warning: "" };
+  const upcoming = ranges.find((range) => visit < range.start);
+  if (upcoming) return { label: `Opens at ${upcoming.startLabel}`, warning: `${stop.name} is scheduled before it opens. Move it later than ${upcoming.startLabel}.` };
+  const last = ranges[ranges.length - 1];
+  return { label: `Closes at ${last.endLabel}`, warning: `${stop.name} closes before its scheduled visit time. Move it earlier than ${last.endLabel}.` };
+}
+
+const moodKeywords = {
+  adventurous: /adventur|adrenaline|ziplin|cliff|paraglid|rafting|bungee|thrill/i,
+  "slow-scenic": /slow|scenic|quiet|view|sunset|golden hour|peaceful|relax/i,
+  cultural: /cultur|museum|history|architecture|gallery|temple|heritage|art/i,
+  culinary: /culinary|restaurant|food|dinner|lunch|breakfast|market|cafe|café|tasting/i,
+  offbeat: /offbeat|hidden|secret|quirky|unusual|underground|obscure/i,
+  social: /social|group|lively|music|rooftop|night market|colleague|friends/i,
+  active: /active|hike|bike|kayak|paddle|walk|sport|movement/i,
+  "night-owl": /night|late|midnight|after dark|bar|jazz|club/i,
+  romantic: /romantic|date|candle|intimate|sunset|golden hour/i,
+};
+
+function stopMoodMatches(stop, selected = []) {
+  const text = `${stop?.category || ""} ${stop?.description || ""} ${stop?.requirementMatch || ""}`;
+  return selected.filter((mood) => moodKeywords[mood.id]?.test(text)).slice(0, 2);
+}
+
+function stopPresentation(stop = {}) {
+  const sentences = String(stop.description || "").match(/[^.!?]+[.!?]?/g)?.map((part) => part.trim()).filter(Boolean) || [];
+  const actionable = /\b(request|ask for|bring|avoid|without|substitut|allerg|gluten|vegan|vegetarian|wheelchair|accessible|budget|under \$|reservation|parking|transit)\b/i;
+  const tips = sentences.filter((sentence) => actionable.test(sentence));
+  const description = concisePlaceDescription(sentences.filter((sentence) => !actionable.test(sentence)).join(" ") || String(stop.description || ""));
+  const requirement = String(stop.requirementMatch || "").trim();
+  const usefulRequirement = /\$|budget|gluten|vegan|vegetarian|wheel|access|request|ask|bring|avoid|near|minute|walk|reservation|crowd|indoor|outdoor|patio|transit|parking/i.test(requirement);
+  const insight = [...new Set([...(usefulRequirement ? [requirement] : []), ...tips])].join(" ");
+  return { description, insight };
+}
+
+function concisePlaceDescription(value = "", maxLength = 240) {
+  const text = String(value).replace(/\s+/g, " ").trim();
+  if (text.length <= maxLength) return text;
+  const sentences = text.match(/[^.!?]+[.!?]+/g)?.map((part) => part.trim()).filter(Boolean) || [];
+  const complete = [];
+  for (const sentence of sentences.slice(0, 2)) {
+    const candidate = [...complete, sentence].join(" ");
+    if (candidate.length > maxLength) break;
+    complete.push(sentence);
+  }
+  if (complete.length) return complete.join(" ");
+  const shortened = text.slice(0, maxLength);
+  const boundary = Math.max(shortened.lastIndexOf(","), shortened.lastIndexOf(";"), shortened.lastIndexOf(":"));
+  if (boundary > 100) return `${shortened.slice(0, boundary).trim()}.`;
+  const wordBoundary = shortened.lastIndexOf(" ");
+  return `${shortened.slice(0, wordBoundary > 100 ? wordBoundary : maxLength).replace(/[,:;\s]+$/, "").trim()}.`;
 }
 
 function specialTimingNote(stop) {
@@ -355,7 +595,7 @@ function PlacesCarousel({ moods, places }) {
 
 function App() {
   const [user, setUser] = useState(null);
-  const [step, setStep] = useState(() => new URLSearchParams(window.location.search).has("outdoBuffer") ? "outdoBuffer" : "login");
+  const [step, setStep] = useState("login");
   const [destination, setDestination] = useState("");
   const [endDestination, setEndDestination] = useState("");
   const [placePredictions, setPlacePredictions] = useState([]);
@@ -367,13 +607,19 @@ function App() {
   const [endAutocompleteError, setEndAutocompleteError] = useState("");
   const [showEndDestinationSuggestions, setShowEndDestinationSuggestions] = useState(false);
   const [date, setDate] = useState(getToday());
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
   const [diet, setDiet] = useState("Vegetarian");
   const [planFor, setPlanFor] = useState("Date");
-  const [transportMode, setTransportMode] = useState("");
+  const [transportMode, setTransportMode] = useState("Car");
   const [requirements, setRequirements] = useState("");
+  const [requirementChips, setRequirementChips] = useState([]);
+  const [requirementsFocus, setRequirementsFocus] = useState(false);
+  const [refinement, setRefinement] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isRefining, setIsRefining] = useState(false);
   const [selectedMoods, setSelectedMoods] = useState([]);
   const [loadingPct, setLoadingPct] = useState(6);
-  const [placesPhotos, setPlacesPhotos] = useState([]);
   const [itinerary, setItinerary] = useState(null);
   const [googleReady, setGoogleReady] = useState(false);
   const [error, setError] = useState("");
@@ -406,15 +652,118 @@ function App() {
   const shellRef = useRef(null);
   const routeRefreshTimerRef = useRef(null);
   const routeRefreshRequestRef = useRef(0);
+  const motionPathRef = useRef(null);
+  const jumpTimerRef = useRef(null);
+  const crashTimerRef = useRef(null);
+  const lastJumpAtRef = useRef(0);
+  const loadingStartedAtRef = useRef(0);
+  const gameProgressRef = useRef(6);
+  const previousLoadingPctRef = useRef(6);
+  const clearedHurdlesRef = useRef(new Set());
+  const [loaderCursor, setLoaderCursor] = useState({ x: 78, y: 516, angle: -20 });
+  const [dinoJumping, setDinoJumping] = useState(false);
+  const [dinoCrashed, setDinoCrashed] = useState(false);
+  const [dinoScore, setDinoScore] = useState(0);
+  const [gameLap, setGameLap] = useState(1);
+  const [gameUnlock, setGameUnlock] = useState("First route ready — jump to unlock research levels");
+  const [travelScene, setTravelScene] = useState(0);
+  const [travelObstacle, setTravelObstacle] = useState(0);
+  const [travelerStumble, setTravelerStumble] = useState(false);
+  const [obstacleReaction, setObstacleReaction] = useState(false);
+  const [missScore, setMissScore] = useState(0);
+  const [gameMessage, setGameMessage] = useState("Trip mode unlocked");
+  const travelGameStartedAtRef = useRef(0);
+  const gameAudioContextRef = useRef(null);
+  const [isMobileLoader, setIsMobileLoader] = useState(false);
 
   function goTo(s) {
     window.scrollTo({ top: 0, behavior: "instant" });
     setStep(s);
   }
 
+  function triggerDinoJump() {
+    if (step !== "loading") return;
+    try {
+      const AudioEngine = window.AudioContext || window.webkitAudioContext;
+      if (AudioEngine && !gameAudioContextRef.current) gameAudioContextRef.current = new AudioEngine();
+      gameAudioContextRef.current?.resume?.();
+    } catch { }
+    lastJumpAtRef.current = Date.now();
+    setDinoJumping(true);
+    setTravelerStumble(false);
+    clearTimeout(jumpTimerRef.current);
+    jumpTimerRef.current = setTimeout(() => setDinoJumping(false), 620);
+  }
+
+  function playLevelSound() {
+    try {
+      const AudioEngine = window.AudioContext || window.webkitAudioContext;
+      if (!AudioEngine) return;
+      const context = gameAudioContextRef.current || new AudioEngine();
+      gameAudioContextRef.current = context;
+      [523.25, 659.25, 783.99].forEach((frequency, index) => {
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        oscillator.frequency.value = frequency;
+        oscillator.type = "sine";
+        gain.gain.setValueAtTime(0.0001, context.currentTime + index * .08);
+        gain.gain.exponentialRampToValueAtTime(.08, context.currentTime + index * .08 + .02);
+        gain.gain.exponentialRampToValueAtTime(.0001, context.currentTime + index * .08 + .22);
+        oscillator.connect(gain).connect(context.destination);
+        oscillator.start(context.currentTime + index * .08);
+        oscillator.stop(context.currentTime + index * .08 + .24);
+      });
+    } catch { }
+  }
+
+  function finishTravelObstacle(event) {
+    if (event.target !== event.currentTarget) return;
+    const cleared = Date.now() - lastJumpAtRef.current < 820;
+    const mode = travelGameMode(transportMode);
+    const stories = TRAVEL_GAME_STORIES[mode];
+    const story = stories[travelScene];
+    const completedCount = travelObstacle + 1;
+    if (cleared) {
+      setDinoScore((score) => score + 1);
+      setGameMessage(story.win);
+      const unlockNext = completedCount % 4 === 0 && travelScene < stories.length - 1;
+      clearTimeout(crashTimerRef.current);
+      crashTimerRef.current = setTimeout(() => {
+        setTravelObstacle((obstacle) => obstacle + 1);
+        if (unlockNext) {
+          const nextScene = travelScene + 1;
+          setTravelScene(nextScene);
+          setGameMessage(stories[nextScene].intro);
+          playLevelSound();
+        }
+      }, 280);
+    } else {
+      setMissScore((score) => score + 1);
+      setTravelerStumble(true);
+      setGameMessage(`${story.miss} Restarting ${story.label}.`);
+      clearTimeout(crashTimerRef.current);
+      crashTimerRef.current = setTimeout(() => {
+        setTravelerStumble(false);
+        setTravelObstacle(travelScene * 4);
+        setGameMessage(story.intro);
+      }, 720);
+    }
+  }
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 760px)");
+    const sync = () => setIsMobileLoader(media.matches);
+    sync();
+    media.addEventListener?.("change", sync);
+    return () => media.removeEventListener?.("change", sync);
+  }, []);
+
+  useEffect(() => {
+    gameProgressRef.current = loadingPct;
+  }, [loadingPct]);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.has("outdoBuffer")) return;
     const boardId = params.get("board");
     if (boardId) {
       try {
@@ -426,7 +775,7 @@ function App() {
         setDate(saved.date || getToday());
         setDestination(saved.destination || sourceItinerary.destination || "");
         setEndDestination(saved.endDestination || "");
-        setTransportMode(saved.transportMode || "Walking");
+        setTransportMode(saved.transportMode || "Car");
         setCardIndex(0);
         setItineraryBuilt(false);
         setManualStopOrder(false);
@@ -449,7 +798,7 @@ function App() {
         setDate(saved.date || getToday());
         setDestination(saved.destination || saved.itinerary.destination || "");
         setEndDestination(saved.endDestination || "");
-        setTransportMode(saved.transportMode || "Walking");
+        setTransportMode(saved.transportMode || "Car");
         setOutdoPlanId(outdoId);
         setItineraryBuilt(true);
         setManualStopOrder(Boolean(saved.manuallyEditedAt));
@@ -675,10 +1024,40 @@ function App() {
     });
     return () => { /* allow garbage collection */ };
   }, [itinerary, selectedMoods]);
+
+  useEffect(() => {
+    if (step !== "loading" || !motionPathRef.current) return;
+    const path = motionPathRef.current;
+    const total = path.getTotalLength();
+    const distance = total * Math.min(100, Math.max(0, loadingPct)) / 100;
+    const point = path.getPointAtLength(distance);
+    const next = path.getPointAtLength(Math.min(total, distance + 2));
+    setLoaderCursor({ x: point.x, y: point.y, angle: Math.atan2(next.y - point.y, next.x - point.x) * 180 / Math.PI });
+  }, [loadingPct, step, isMobileLoader]);
+
+  useEffect(() => {
+    if (step !== "loading") return;
+    const jump = (event) => {
+      if ((event.code !== "Space" && event.key !== " ") || event.repeat) return;
+      event.preventDefault();
+      triggerDinoJump();
+    };
+    window.addEventListener("keydown", jump);
+    return () => {
+      window.removeEventListener("keydown", jump);
+      clearTimeout(jumpTimerRef.current);
+      clearTimeout(crashTimerRef.current);
+    };
+  }, [step]);
   const travelArchetype = getTravelArchetype(selectedMoodObjects);
-  const googleTravelMode = transportMode === "Car" ? "driving" : transportMode === "Public transit" ? "transit" : "walking";
+  const googleTravelMode = transportMode === "Walking" ? "walking" : transportMode === "Public transit" ? "transit" : "driving";
   const suggestionStops = itinerary?.stops || [];
   const activeStop = cardIndex < suggestionStops.length ? suggestionStops[cardIndex] : {};
+  const refinementPreviewStop = suggestionStops[0] || {};
+  const activeMoodMatches = stopMoodMatches(activeStop, selectedMoodObjects);
+  const activePresentation = stopPresentation(activeStop);
+  const activeReviews = activeStop.reviewHighlights || activeStop.reviewEvidence || [];
+  const activeDiscoveryLinks = discoveryLinksForStop(activeStop, destination);
   const itineraryStops = selectedStops.length
     ? (itineraryBuilt ? selectedStops : orderStopsByTime(selectedStops))
     : orderStopsByTime(suggestionStops);
@@ -717,7 +1096,7 @@ function App() {
           body: JSON.stringify({
             stops,
             date,
-            transportMode: transportMode || "Walking",
+            transportMode: transportMode || "Car",
             preserveOrder: true
           })
         });
@@ -740,11 +1119,14 @@ function App() {
     if (from == null || to == null || from === to) return;
     setManualStopOrder(true);
     setSelectedStops((items) => {
+      const scheduleSlots = items.map((stop) => ({ time: stop.time, period: stop.period }));
       const next = [...items];
       const [moved] = next.splice(from, 1);
       next.splice(to, 0, moved);
       const pending = next.map((stop, index) => ({
         ...stop,
+        time: scheduleSlots[index]?.time || stop.time,
+        period: scheduleSlots[index]?.period || stop.period,
         routeFromPrevious: index === 0 ? "" : "Updating route from previous stop…"
       }));
       scheduleConsecutiveLegRefresh(pending);
@@ -753,14 +1135,15 @@ function App() {
   }
 
   function returnToSuggestions() {
-    if (window.opener && !window.opener.closed) {
-      window.opener.focus();
-      return;
-    }
-    const url = new URL(window.location.href);
-    url.search = "";
-    url.searchParams.set("board", outdoPlanId);
-    window.location.assign(url.toString());
+    let source = null;
+    try {
+      source = outdoPlanId ? JSON.parse(localStorage.getItem(`outdonePlan:${outdoPlanId}`) || "null")?.sourceItinerary : null;
+    } catch { }
+    if (source?.stops?.length) setItinerary(source);
+    setItineraryBuilt(false);
+    setOutdoPlanId("");
+    setCardIndex(0);
+    window.scrollTo({ top: 0, behavior: "instant" });
   }
 
   function beginMobileSort(index, event) {
@@ -795,29 +1178,19 @@ function App() {
     if (!selectedStops.length || outdoLoading) return;
     const fingerprint = stablePlanFingerprint(selectedStops, date, transportMode);
     const cachedPlanId = localStorage.getItem(`outdoneRouteCache:${fingerprint}`);
-    const buildPlanUrl = (planId) => {
-      const url = new URL(window.location.href);
-      url.search = "";
-      url.searchParams.set("outdo", planId);
-      return url.toString();
-    };
-    const buildBufferUrl = () => {
-      const url = new URL(window.location.href);
-      url.search = "";
-      url.searchParams.set("outdoBuffer", "1");
-      return url.toString();
-    };
 
     if (cachedPlanId && localStorage.getItem(`outdonePlan:${cachedPlanId}`)) {
-      window.open(buildPlanUrl(cachedPlanId), "_blank", "noopener,noreferrer");
-      setMobileTrayOpen(false);
-      return;
-    }
-
-    const planTab = window.open(buildBufferUrl(), "_blank");
-    if (!planTab) {
-      setError("Allow pop-ups for outdone so AI Outdo can open the optimized route in a separate tab.");
-      return;
+      try {
+        const cached = JSON.parse(localStorage.getItem(`outdonePlan:${cachedPlanId}`));
+        setSelectedStops(cached.itinerary.stops || selectedStops);
+        setItinerary(cached.itinerary);
+        setOutdoPlanId(cachedPlanId);
+        setItineraryBuilt(true);
+        setMobileTrayOpen(false);
+        return;
+      } catch {
+        localStorage.removeItem(`outdoneRouteCache:${fingerprint}`);
+      }
     }
     setOutdoLoading(true);
     setError("");
@@ -826,7 +1199,7 @@ function App() {
       const response = await fetch("/api/optimize-route", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stops: selectedStops, date, transportMode: transportMode || "Walking" })
+        body: JSON.stringify({ stops: selectedStops, date, transportMode: transportMode || "Car", unitSystem: usesImperialDistance(destination) ? "imperial" : "metric" })
       });
       const data = await response.json();
       if (!response.ok || !data.orderedStops?.length) throw new Error(data.error || "AI Outdo could not optimize this route.");
@@ -838,7 +1211,7 @@ function App() {
         date,
         destination,
         endDestination,
-        transportMode: transportMode || "Walking",
+        transportMode: transportMode || "Car",
         optimization: data.optimization,
         createdAt: new Date().toISOString(),
         sourceItinerary: itinerary,
@@ -852,10 +1225,12 @@ function App() {
       };
       localStorage.setItem(`outdonePlan:${planId}`, JSON.stringify(record));
       localStorage.setItem(`outdoneRouteCache:${fingerprint}`, planId);
-      planTab.location.replace(buildPlanUrl(planId));
+      setSelectedStops(data.orderedStops);
+      setItinerary(record.itinerary);
+      setOutdoPlanId(planId);
+      setItineraryBuilt(true);
       setMobileTrayOpen(false);
     } catch (error) {
-      planTab.close();
       setError(error.message || "AI Outdo could not optimize this route.");
     } finally {
       setOutdoLoading(false);
@@ -904,10 +1279,10 @@ function App() {
   ], [destination, diet, planFor, selectedMoodObjects, user]);
   const displayLoadingPct = Math.round(loadingPct);
   const activeLoadingPhase =
-    loadingPct >= 90 ? 4 :
-    loadingPct >= 70 ? 3 :
-    loadingPct >= 48 ? 2 :
-    loadingPct >= 26 ? 1 :
+    loadingPct >= 100 ? 4 :
+    loadingPct >= 78 ? 3 :
+    loadingPct >= 55 ? 2 :
+    loadingPct >= 30 ? 1 :
     0;
 
   function toggleMood(id) {
@@ -918,12 +1293,35 @@ function App() {
     });
   }
 
-  async function generatePlan() {
+  function commitRequirement(value) {
+    const next = String(value || "").trim();
+    if (!next) return;
+    setRequirementChips((items) => items.some((item) => item.toLowerCase() === next.toLowerCase()) ? items : [...items, next]);
+    setRequirements("");
+  }
+
+  async function generatePlan(extraRequirement = "") {
+    if (isGenerating) return;
+    setIsGenerating(true);
     goTo("loading");
     setError("");
     setLoadingPct(6);
+    loadingStartedAtRef.current = Date.now();
+    previousLoadingPctRef.current = 6;
+    clearedHurdlesRef.current = new Set();
+    lastJumpAtRef.current = 0;
+    setDinoScore(0);
+    setDinoCrashed(false);
+    setGameLap(1);
+    setGameUnlock("First route ready — jump to unlock research levels");
+    travelGameStartedAtRef.current = Date.now();
+    setTravelScene(0);
+    setTravelObstacle(0);
+    setTravelerStumble(false);
+    setObstacleReaction(false);
+    setMissScore(0);
+    setGameMessage(TRAVEL_GAME_STORIES[travelGameMode(transportMode)][0].intro);
     setItinerary(null);
-    setPlacesPhotos([]);
     setCardIndex(0);
     setSavedCards(new Set());
     setSelectedStops([]);
@@ -933,31 +1331,11 @@ function App() {
 
     const interval = setInterval(() => {
       setLoadingPct((pct) => {
-        if (pct >= 90) return 90;
-        if (pct < 26) return Math.min(26, pct + 3.2);
-        if (pct < 48) return Math.min(48, pct + 2.3);
-        if (pct < 70) return Math.min(70, pct + 1.6);
-        return Math.min(90, pct + 0.95);
+        const elapsed = (Date.now() - loadingStartedAtRef.current) / 1000;
+        const speed = elapsed < 15 ? 1.8 : elapsed < 40 ? 1.2 : .8;
+        return Math.min(94, pct + speed);
       });
-    }, 900);
-
-    const fetchPlaces = async () => {
-      try {
-        const res = await fetch(`/api/place-autocomplete?input=${encodeURIComponent(destination)}`);
-        const data = await res.json();
-        const photos = await Promise.all(
-          [destination, ...selectedMoodObjects.map(m => `${destination} ${m.title}`)].slice(0, 8).map(async (q) => {
-            try {
-              const r = await fetch(`/api/place-autocomplete?input=${encodeURIComponent(q)}`);
-              const d = await r.json();
-              const first = (d.suggestions || [])[0];
-              return first ? { name: first.label || first, placeId: first.placeId } : null;
-            } catch { return null; }
-          })
-        );
-        setPlacesPhotos(photos.filter(Boolean));
-      } catch (e) { }
-    };
+    }, 420);
 
     const geminiPromise = fetch("/api/generate", {
       method: "POST",
@@ -968,15 +1346,15 @@ function App() {
         endDestination: endDestination.trim() || null,
         dates: prettyDate(date),
         date,
+        startTime: startTime || null,
+        endTime: endTime || null,
         diet,
         travelWith: planFor,
-        transportMode,
+        transportMode: transportMode || "Car",
         selectedMoods: selectedMoodObjects,
-        requirements: requirements.trim()
+        requirements: joinRequirements(requirementChips, [requirements, extraRequirement].filter(Boolean).join("; "))
       })
     });
-
-    fetchPlaces();
 
     try {
       const res = await geminiPromise;
@@ -984,15 +1362,60 @@ function App() {
       if (!res.ok || data?.error) throw new Error(data?.error || "The planning service is unavailable right now.");
       const completePlan = data;
       clearInterval(interval);
-      setLoadingPct((pct) => Math.max(pct, 90));
       setItinerary(completePlan);
-      setTimeout(() => setLoadingPct(100), 850);
-      setTimeout(() => goTo("result"), 2200);
+      setDinoCrashed(false);
+      setGameUnlock("Final level unlocked · your suggestions are ready");
+      setLoadingPct(100);
+      setDinoJumping(true);
+      setTimeout(() => goTo("result"), 720);
     } catch (err) {
       clearInterval(interval);
       console.error(err);
       setError(err.message || "We could not generate the plan.");
       goTo("apiError");
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
+  async function generateMoreSuggestions(event) {
+    event.preventDefault();
+    if (!refinement.trim() || isRefining) return;
+    setIsRefining(true);
+    setError("");
+    try {
+      const response = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user,
+          destination,
+          endDestination: endDestination.trim() || null,
+          dates: prettyDate(date),
+          date,
+          startTime: startTime || null,
+          endTime: endTime || null,
+          diet,
+          travelWith: planFor,
+          transportMode: transportMode || "Car",
+          selectedMoods: selectedMoodObjects,
+          requirements: joinRequirements(requirementChips, [requirements, refinement].filter(Boolean).join("; "))
+        })
+      });
+      const data = await response.json();
+      if (!response.ok || data?.error) throw new Error(data?.error || "Could not refresh suggestions.");
+      setItinerary((current) => {
+        const existing = current?.stops || [];
+        const seen = new Set(existing.map((stop) => stop.placeId || String(stop.name).toLowerCase()));
+        const fresh = (data.stops || []).filter((stop) => !seen.has(stop.placeId || String(stop.name).toLowerCase()));
+        return { ...data, stops: [...fresh, ...existing] };
+      });
+      setCardIndex(0);
+      setRefinement("");
+    } catch (refreshError) {
+      setError(refreshError.message || "Could not refresh suggestions.");
+    } finally {
+      setIsRefining(false);
     }
   }
 
@@ -1020,8 +1443,8 @@ function App() {
   }
 
   function startOver() {
-    setDestination(""); setEndDestination(""); setRequirements(""); setDate(getToday()); setDiet("No preference"); setPlanFor("Date");
-    setTransportMode(""); setSelectedMoods([]); setRequirements(""); setEndDestination("");
+    setDestination(""); setEndDestination(""); setRequirements(""); setRequirementChips([]); setRefinement(""); setDate(getToday()); setStartTime(""); setEndTime(""); setDiet("No preference"); setPlanFor("Date");
+    setTransportMode("Car"); setSelectedMoods([]); setRequirements(""); setEndDestination("");
     setItinerary(null); setCardIndex(0); setSavedCards(new Set());
     setSelectedStops([]); setItineraryBuilt(false); setMobileTrayOpen(false); setManualStopOrder(false);
     goTo("setup");
@@ -1151,7 +1574,7 @@ function App() {
   }
 
   return (
-    <div className={`app-shell${step === "login" ? " login-active" : ""}${step === "loading" ? " loading-active" : ""}${step === "outdoBuffer" ? " outdo-buffer-active" : ""}${step === "result" ? " result-active" : ""}${step === "result" && itineraryBuilt ? " itinerary-final-active" : ""}${outdoPlanId ? " ai-outdo-view" : ""}`} ref={shellRef}>
+    <div className={`app-shell${step === "login" ? " login-active" : ""}${step === "loading" ? " loading-active" : ""}${step === "result" ? " result-active" : ""}${step === "result" && itineraryBuilt ? " itinerary-final-active" : ""}`} ref={shellRef}>
       <nav className="navbar">
         <div className="nav-left-group nav-desktop">
           <svg className="nav-mark" width="24" height="24" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" aria-label="outdone">
@@ -1347,7 +1770,7 @@ function App() {
 
           <div className="setup-stack">
             <div className="setup-card">
-              <span className="setup-card-label">WHERE</span>
+              <span className="setup-card-label">DESTINATION</span>
               <input
                 value={destination}
                 onChange={(e) => {
@@ -1358,7 +1781,7 @@ function App() {
                   setShowDestinationSuggestions(true);
                 }}
                 onBlur={() => setTimeout(() => setShowDestinationSuggestions(false), 140)}
-                placeholder={showDestinationSuggestions ? "" : "City, neighborhood or even country"}
+                placeholder={showDestinationSuggestions ? "" : "City, neighborhood, country"}
                 autoComplete="off"
                 className="setup-card-input"
               />
@@ -1380,13 +1803,8 @@ function App() {
                   {!isAutocompleting && destinationOptions.length === 0 && !autocompleteError && <div className="autocomplete-loading">No suggestions yet. Keep typing or press Next.</div>}
                 </div>
               )}
-            </div>
-
-            <div className="setup-card">
-              <span className="setup-card-label">WHEN</span>
-              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="setup-card-input" />
               <div className="setup-card-divider" />
-              <span className="setup-card-label">END DESTINATION <span className="setup-card-optional">— optional</span></span>
+              <span className="setup-card-label">END <span className="setup-card-optional">— optional</span></span>
               <input
                 type="text"
                 value={endDestination}
@@ -1396,7 +1814,7 @@ function App() {
                 }}
                 onFocus={() => setShowEndDestinationSuggestions(true)}
                 onBlur={() => setTimeout(() => setShowEndDestinationSuggestions(false), 140)}
-                placeholder={showEndDestinationSuggestions ? "" : "Where would you like to end up?"}
+                placeholder={showEndDestinationSuggestions ? "" : "Back home or Hotel"}
                 className="setup-card-input"
                 autoComplete="off"
               />
@@ -1422,6 +1840,16 @@ function App() {
                   {!isEndAutocompleting && endDestinationOptions.length === 0 && !endAutocompleteError && <div className="autocomplete-loading">No suggestions yet. Keep typing or leave this blank.</div>}
                 </div>
               )}
+            </div>
+
+            <div className="setup-card">
+              <span className="setup-card-label">WHEN</span>
+              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="setup-card-input" />
+              <div className="setup-card-divider" />
+              <label className="setup-end-time">
+                <span className="setup-card-label">END TIME <span className="setup-card-optional">— optional</span></span>
+                <input type="time" value={endTime} onChange={(event) => setEndTime(event.target.value)} className="setup-card-input" />
+              </label>
             </div>
 
             <div className="setup-card">
@@ -1466,7 +1894,7 @@ function App() {
               </div>
             )}
 
-            <button className="btn-accent" disabled={!destination.trim()} onClick={() => goTo("mood")}>Next, your vibe →</button>
+            <button className="btn-accent hover-arrow hover-arrow-forward" disabled={!destination.trim()} onClick={() => goTo("mood")}>Next, your vibe</button>
           </div>
         </main>
       )}
@@ -1503,126 +1931,114 @@ function App() {
           </section>
 
           <div className="custom-activity-wrap requirements-wrap">
-            <label className="requirements-field" htmlFor="requirements">
-              <span className="action-search-label">ANY SPECIFIC REQUIREMENTS? <em>— optional, but powerful</em></span>
-              <textarea
-                id="requirements"
-                value={requirements}
-                onChange={(event) => setRequirements(event.target.value)}
-                placeholder="Tell us what matters in your own words — e.g. quiet bookstores and experimental art, no hikes, wheelchair accessible, under $60, avoid crowds…"
-                maxLength={800}
-                rows={4}
-              />
-              <small>{requirements.length}/800 · We prioritize this over generic suggestions.</small>
-            </label>
+            <div className="action-search">
+              <label className="action-search-label" htmlFor="requirements">ANY SPECIFIC REQUIREMENTS? <em>— optional but powerful</em></label>
+              <div className={`action-search-bar${requirementsFocus ? " action-search-open" : ""}`}>
+                <svg className="action-search-icon" width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="6.5" stroke="currentColor" strokeWidth="1.6" /><path d="M14 14l3.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+                <div className="action-search-field">
+                  {requirementChips.map((requirement) => (
+                    <span key={requirement} className="activity-chip">
+                      {requirement}
+                      <button type="button" className="activity-chip-x" onMouseDown={(event) => { event.preventDefault(); setRequirementChips((items) => items.filter((item) => item !== requirement)); }} aria-label={`Remove ${requirement}`}>×</button>
+                    </span>
+                  ))}
+                  <input
+                    id="requirements"
+                    type="text"
+                    value={requirements}
+                    onChange={(event) => setRequirements(event.target.value)}
+                    onFocus={() => setRequirementsFocus(true)}
+                    onBlur={() => setTimeout(() => setRequirementsFocus(false), 150)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && requirements.trim()) {
+                        event.preventDefault();
+                        commitRequirement(requirements);
+                      }
+                      if (event.key === "Backspace" && !requirements && requirementChips.length) {
+                        setRequirementChips((items) => items.slice(0, -1));
+                      }
+                    }}
+                    placeholder={requirementChips.length ? "Add another…" : "Type anything like 'restaurants within $10–$20' and hit enter or select suggestions…"}
+                    maxLength={240}
+                    autoComplete="off"
+                  />
+                </div>
+                {(requirements || requirementChips.length > 0) && <button className="action-search-clear" type="button" onMouseDown={(event) => { event.preventDefault(); setRequirements(""); setRequirementChips([]); }} aria-label="Clear requirements">×</button>}
+              </div>
+
+              {requirementsFocus && (() => {
+                const moodPhrases = (selectedMoods.length ? selectedMoods : ["romantic", "adventurous", "culinary"])
+                  .flatMap((id) => (moodActivitySuggestions[id] || []).map((activity) => ({ activity, mood: moodVibes.find((vibe) => vibe.id === id)?.title || "Idea" })));
+                const query = requirements.trim().toLowerCase();
+                const contextualPhrases = contextualRequirementSuggestions({ query, destination, planFor, diet, transportMode })
+                  .map((activity) => ({ activity, mood: "For your setup", contextual: true }));
+                const pool = [
+                  ...contextualPhrases,
+                  ...universalRequirementSuggestions.map((activity) => ({ activity, mood: "Requirement" })),
+                  ...moodPhrases,
+                ];
+                const filtered = pool.filter((item, index) => pool.findIndex((candidate) => candidate.activity === item.activity) === index)
+                  .filter((item) => item.contextual || !query || item.activity.toLowerCase().includes(query))
+                  .slice(0, 8);
+                if (!filtered.length) return null;
+                return (
+                  <div className="action-search-panel">
+                    <p className="action-search-panel-label">{query ? "Suggestions for your setup" : "To get you started"}</p>
+                    {filtered.map((item, index) => {
+                      const picked = requirementChips.includes(item.activity);
+                      return (
+                        <button
+                          key={item.activity}
+                          type="button"
+                          className={`action-search-item${picked ? " asi-picked" : ""}`}
+                          style={{ animationDelay: `${index * 35}ms` }}
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            setRequirementChips((items) => picked ? items.filter((entry) => entry !== item.activity) : [...items, item.activity]);
+                            setRequirements("");
+                          }}
+                        >
+                          <span className="asi-spark">{picked ? "✓" : "✦"}</span>
+                          <span className="asi-name">{item.activity}</span>
+                          <span className="asi-mood">{item.mood}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
           </div>
 
           <section className="build-cta-row">
-            <button className="btn-accent" onClick={generatePlan}>Generate the plan</button>
+            <button className="btn-accent" onClick={() => generatePlan()} disabled={isGenerating}>
+              {isGenerating && <span className="button-spinner" aria-hidden="true" />} {isGenerating ? "Generating…" : "Generate the plan"}
+            </button>
           </section>
-        </main>
-      )}
-
-      {step === "outdoBuffer" && (
-        <main className="outdo-buffer-screen">
-          <div className="outdo-buffer-orbit" aria-hidden="true">
-            <span>✦</span><i /><i /><i />
-          </div>
-          <p className="label">AI Outdo</p>
-          <h2>Finding the cleanest way through.</h2>
-          <p>Balancing real travel distances, opening hours, meals, and the shape of your night.</p>
-          <div className="outdo-buffer-bar"><span /></div>
         </main>
       )}
 
       {step === "loading" && (
         <main className="loading-screen on">
-          <svg className="motion-loader-svg" viewBox="0 0 1200 680" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-            <path className="motion-path-shadow" d="M78 516 C190 385 260 588 374 412 C475 258 554 356 626 238 C724 78 830 190 878 322 C922 444 1014 428 1122 218" />
-            <path className="motion-path-base" d="M78 516 C190 385 260 588 374 412 C475 258 554 356 626 238 C724 78 830 190 878 322 C922 444 1014 428 1122 218" />
-            <path className="motion-path-draw" d="M78 516 C190 385 260 588 374 412 C475 258 554 356 626 238 C724 78 830 190 878 322 C922 444 1014 428 1122 218" />
-            {[
-              [78, 516],
-              [374, 412],
-              [626, 238],
-              [878, 322],
-              [1122, 218],
-            ].map(([x, y], i) => (
-              <g className={"motion-node" + (i <= activeLoadingPhase ? " motion-node-on" : "")} key={String(x) + "-" + String(y)}>
-                <circle cx={x} cy={y} r="7" />
-                <circle cx={x} cy={y} r="17" />
-              </g>
-            ))}
-            <g className="motion-svg-pointer">
-              <animateMotion
-                dur="28s"
-                repeatCount="1"
-                fill="freeze"
-                rotate="auto"
-                calcMode="linear"
-                keyPoints="0;0;.26;.26;.48;.48;.68;.68;.86;.86;1"
-                keyTimes="0;.10;.20;.28;.40;.48;.60;.68;.80;.88;1"
-                path="M78 516 C190 385 260 588 374 412 C475 258 554 356 626 238 C724 78 830 190 878 322 C922 444 1014 428 1122 218"
-              />
-              <path d="M18 0l-30 12 6-12-6-12L18 0z" />
-            </g>
-          </svg>
+          {(() => {
+            const messages = ["Finding places that match your mood", "Checking hours and distance", "Putting your day in the right order"];
+            const messageIndex = Math.min(messages.length - 1, travelScene);
+            const destinationLabel = destination.split(",")[0].trim() || "your destination";
+            return (
+              <>
+                <header className="traveler-loader-title">
+                  <p>{destination || "Your trip"}</p>
+                  <h2>Building your itinerary</h2>
+                  <div className="traveler-message-stack" aria-live="polite">
+                    {messages.map((message, index) => <span className={index === messageIndex ? "active" : index < messageIndex ? "done" : ""} key={message}>{index < messageIndex ? "✓" : "✦"} {message}</span>)}
+                  </div>
+                </header>
 
-          <div className="motion-loader-title">
-            <p>{destination || "Your trip"}</p>
-            <h2>Building your itinerary</h2>
-          </div>
+                <FlightGame destination={destination} destinationLabel={destinationLabel} progressText={messages[messageIndex]} />
+              </>
+            );
+          })()}
 
-          <div className="motion-callouts">
-            {loadingPhases.map((phase, i) => (
-              <section key={phase.id} className={"motion-callout motion-callout-" + i + (i === activeLoadingPhase ? " motion-callout-active" : "") + (i < activeLoadingPhase ? " motion-callout-done" : "")}>
-                <div className="motion-visual">
-                  {phase.id === "profile" && (
-                    <div className="motion-profile">
-                      <div className="motion-profile-ring" />
-                      {user?.picture
-                        ? <img src={user.picture} alt="" />
-                        : <svg viewBox="0 0 42 42" width="42" height="42" fill="none"><circle cx="21" cy="16" r="8" fill="currentColor" opacity=".35" /><path d="M7 37c0-8 6.2-13 14-13s14 5 14 13" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" opacity=".35" /></svg>}
-                    </div>
-                  )}
-                  {phase.id === "vibe" && (
-                    <div className="motion-vibes">
-                      {selectedMoodObjects.slice(0, 3).map((mood) => <span key={mood.id}>{mood.title}</span>)}
-                    </div>
-                  )}
-                  {phase.id === "places" && (
-                    <div className="motion-reviews">
-                      {[4.8, 4.6, 4.5].map((rating, idx) => <span key={idx}>★ {rating}</span>)}
-                    </div>
-                  )}
-                  {phase.id === "photos" && (
-                    <div className="motion-photo-stack">
-                      {selectedMoodObjects.slice(0, 3).map((mood, idx) => <img key={mood.id} src={mood.img} alt="" style={{ "--i": idx }} />)}
-                    </div>
-                  )}
-                  {phase.id === "gemini" && (
-                    <div className="motion-gemini">
-                      <span>✦</span>
-                      <i />
-                      <i />
-                      <i />
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <p>{phase.title}{i < activeLoadingPhase ? " - done" : ""}</p>
-                  <span>{phase.line}</span>
-                </div>
-              </section>
-            ))}
-          </div>
-
-          <div className="motion-loader-bottom">
-            <div className="loader-bar-track">
-              <div className="loader-bar-fill" style={{ width: String(displayLoadingPct) + "%" }} />
-            </div>
-            <p className="loader-pct">{displayLoadingPct}%</p>
-          </div>
         </main>
       )}
 
@@ -1634,29 +2050,31 @@ function App() {
             <p>Please try again later.</p>
             <div className="error-actions">
               <button className="btn-outline" onClick={() => goTo("setup")}>Edit setup</button>
-              <button className="btn-accent" onClick={generatePlan}>Try again ✦</button>
+              <button className="btn-accent" onClick={() => generatePlan()}>Try again ✦</button>
             </div>
           </div>
         </main>
       )}
 
       {step === "result" && (
-        <main className={`rec-screen builder-screen on${itineraryBuilt ? " itinerary-built" : ""}`}>
+        <main className={`rec-screen builder-screen on${itineraryBuilt ? " itinerary-built" : ""}${!itineraryBuilt && !activeStop.name ? " suggestion-refine-active" : ""}`}>
           <div className="builder-layout">
             <section className="builder-photo-pane">
-              <img key={cardIndex} className="builder-photo-img" src={stopImage(activeStop, cardIndex)} alt="" />
+              <img key={cardIndex} className="builder-photo-img" src={stopImage(activeStop.name ? activeStop : refinementPreviewStop, cardIndex)} alt="" />
               <div className="builder-photo-ov" />
               <div className="builder-photo-meta">
+                {itineraryBuilt && <button className="hero-back-button hover-arrow hover-arrow-back" type="button" onClick={returnToSuggestions}>Back to suggestions</button>}
                 <p>{itinerary?.dates || prettyDate(date)}</p>
                 <h2>{itinerary?.destination || destination}</h2>
               </div>
 
               <button className="mobile-selected-pill" type="button" onClick={() => setMobileTrayOpen(true)}>
                 <span>{selectedStops.length}</span>
-                Outing board
+                Selected
               </button>
 
               <div className="selected-tray">
+                {itineraryBuilt && selectedStops.length > 1 && <p className="selected-sort-label">Drag to sort</p>}
                 <div className="selected-tray-row">
                   {selectedStops.map((stop, i) => (
                     <article
@@ -1668,7 +2086,7 @@ function App() {
                       onDrop={() => { moveSelectedStop(dragIndex, i); setDragIndex(null); }}
                     >
                       <img src={stopImage(stop, i)} alt="" />
-                      {!outdoPlanId && <button type="button" onClick={() => removeSelectedStop(i)} aria-label="Remove from itinerary">×</button>}
+                      <button type="button" onClick={() => removeSelectedStop(i)} aria-label="Remove from itinerary">×</button>
                       <span>{String(i + 1).padStart(2, "0")}</span>
                       <p>{stop.name}</p>
                     </article>
@@ -1684,14 +2102,7 @@ function App() {
                     <>
                   <header className="builder-panel-head">
                     <p className="rec-head-eyebrow">Suggestions · {String(cardIndex + 1).padStart(2, "0")} / {String(suggestionStops.length || 1).padStart(2, "0")}</p>
-                    <h2 className="rec-head-dest">Build your outing board</h2>
-                    {itinerary?.planningDecision && (
-                      <p className="planning-brief">
-                        {suggestionStops.length} tailored {suggestionStops.length === 1 ? "place" : "places"}
-                        {itinerary.planningDecision.inferredRadiusKm ? ` · about ${itinerary.planningDecision.inferredRadiusKm} km radius` : ""}
-                        {itinerary.generationSamples ? ` · ${itinerary.generationSamples} searches merged` : ""}
-                      </p>
-                    )}
+                    <h2 className="rec-head-dest">Choose your suggestions</h2>
                   </header>
 
                   <article
@@ -1715,9 +2126,8 @@ function App() {
                     <div className="rec-card-inner suggestion-inner">
                       <p className="rec-card-cat">{activeStop.category || "Suggestion"}</p>
                       <div className="rec-card-timerow">
-                        {activeStop.rating && <span className="rec-card-pill rec-pill-rating">★ {activeStop.rating}</span>}
-                        {(activeStop.specialHoursMetadata?.hasExceptionalHours || activeStop.specialHoursStatus === "special") && <span className="rec-card-pill special-hours-pill">Special hours may apply</span>}
-                        {priceLabel(activeStop.priceLevel) && <span className="rec-card-pill">{priceLabel(activeStop.priceLevel)}</span>}
+                        {activeMoodMatches.map((mood) => <span className="rec-card-pill mood-pill" key={mood.id}>{mood.title}</span>)}
+                        {priceRange(activeStop.priceLevel) && <span className="rec-card-pill budget-pill">{priceLabel(activeStop.priceLevel)} · {priceRange(activeStop.priceLevel)}</span>}
                       </div>
                       <h3 className="rec-card-name">{activeStop.name || "More suggestions are loading"}</h3>
                       {activeStop.address && (
@@ -1726,16 +2136,39 @@ function App() {
                           {activeStop.address}
                         </a>
                       )}
-                      <p className="rec-card-desc">{activeStop.description}</p>
-                      {activeStop.requirementMatch && <p className="requirement-match"><span>✦</span>{activeStop.requirementMatch}</p>}
-                      {openingSummary(activeStop, date) && <p className="opening-guidance">{openingSummary(activeStop, date)}</p>}
-                      {specialTimingNote(activeStop) && <p className="opening-guidance special-hours-guidance">{specialTimingNote(activeStop)}</p>}
-                      {activeStop.bookingUrl && (
-                        <a className="rec-card-book" href={activeStop.bookingUrl} target="_blank" rel="noreferrer">
-                          Check availability and book
-                          <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                        </a>
+                      <p className="rec-card-desc">{activePresentation.description}</p>
+                      {activeDiscoveryLinks.length > 0 && (
+                        <div className="source-links suggestion-source-row">
+                          {activeDiscoveryLinks.map((source) => (
+                            <a href={source.url} target="_blank" rel="noreferrer" key={source.url} className="source-link-social">
+                              Found on {source.label}
+                            </a>
+                          ))}
+                        </div>
                       )}
+                      <div className="suggestion-evidence">
+                        <section>
+                          <h4><a href={activeStop.mapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(activeStop.name || "")}`} target="_blank" rel="noreferrer">OPEN HOURS →</a></h4>
+                          <p>{openingSummary(activeStop, date) || activeStop.openTimingGuidance || "Confirm hours before visiting."}</p>
+                          {specialTimingNote(activeStop) && <p className="evidence-note">{specialTimingNote(activeStop)}</p>}
+                          {openTableBookingUrl(activeStop, destination, date, planFor) && (
+                            <a className="rec-card-book evidence-book-link" href={openTableBookingUrl(activeStop, destination, date, planFor)} target="_blank" rel="noreferrer">
+                              Find a table on OpenTable
+                              <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                            </a>
+                          )}
+                        </section>
+                        <section>
+                          <h4><a href={activeStop.mapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(activeStop.name || "")}`} target="_blank" rel="noreferrer">WHAT PEOPLE SAY →</a></h4>
+                          {activeReviews.length ? (
+                            <div className="review-quotes">
+                              {activeReviews.slice(0, 1).map((review, index) => <blockquote key={`${review.author || "review"}-${index}`}>“{review.quote || review.text}”{review.author && <cite>— {review.author}</cite>}</blockquote>)}
+                            </div>
+                          ) : activeStop.rating ? (
+                            <p className="google-review-summary">★ {activeStop.rating}{activeStop.userRatingCount ? ` from ${Number(activeStop.userRatingCount).toLocaleString()} Google reviews` : " on Google Maps"}.</p>
+                          ) : <p><a href={activeStop.mapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(activeStop.name || "")}`} target="_blank" rel="noreferrer">Read recent reviews on Google Maps</a>.</p>}
+                        </section>
+                      </div>
                     </div>
 
                     <div className="suggestion-actions">
@@ -1744,48 +2177,33 @@ function App() {
                     </div>
                   </article>
                   {selectedStops.length > 0 && (
-                    <button type="button" className="builder-create-plan stardust-plan ai-outdo-button" onClick={runAiOutdo} disabled={outdoLoading}>
-                      <span>✦</span> {outdoLoading ? "AI Outdo is arranging…" : "AI Outdo"} <span>✦</span>
+                    <button type="button" className="builder-create-plan" onClick={runAiOutdo} disabled={outdoLoading}>
+                      {outdoLoading && <span className="button-spinner" aria-hidden="true" />} {outdoLoading ? "Generating itinerary…" : "Generate itinerary"}
                     </button>
                   )}
                     </>
                   ) : (
-                    <section className="board-complete-state">
-                      <p className="rec-head-eyebrow">OUTING BOARD</p>
-                      <h2>{selectedStops.length ? "Your picks are ready." : "Your board is empty."}</h2>
-                      <p>{selectedStops.length ? "Everything you chose is here. Remove anything that no longer fits, or let AI Outdo arrange the route." : "You reached the end without adding a place. Go back through the suggestions whenever you’re ready."}</p>
-                      {selectedStops.length > 0 && (
-                        <div className="board-complete-grid">
-                          {selectedStops.map((stop, index) => (
-                            <article key={`${stop.name}-${index}`}>
-                              <img src={stopImage(stop, index)} alt="" />
-                              <div><span>{String(index + 1).padStart(2, "0")}</span><strong>{stop.name}</strong></div>
-                              <button type="button" onClick={() => removeSelectedStop(index)} aria-label={`Remove ${stop.name}`}>×</button>
-                            </article>
-                          ))}
-                        </div>
-                      )}
-                      <div className="board-complete-actions">
-                        <button type="button" className="btn-outline" onClick={() => setCardIndex(0)}>← Review suggestions</button>
-                        {selectedStops.length > 0 && <button type="button" className="btn-accent stardust-plan ai-outdo-button" onClick={runAiOutdo} disabled={outdoLoading}>✦ {outdoLoading ? "Arranging…" : "AI Outdo"} ✦</button>}
-                      </div>
+                    <section className="suggestion-refine-card">
+                      <p className="rec-head-eyebrow">YOU’VE SEEN EVERY SUGGESTION</p>
+                      <h2>Want more suggestions or changes?</h2>
+                      <p>Tell us what was missing and we’ll research another set without losing the places you selected.</p>
+                      <form onSubmit={generateMoreSuggestions}>
+                        <input value={refinement} onChange={(event) => setRefinement(event.target.value)} placeholder="Try ‘more live music, less walking’" aria-label="Changes for new suggestions" />
+                        <button className="btn-accent" type="submit" disabled={!refinement.trim() || isRefining}>{isRefining && <span className="button-spinner" aria-hidden="true" />} {isRefining ? "Researching…" : "Find more"}</button>
+                      </form>
+                      {selectedStops.length > 0 && <button type="button" className="refine-itinerary-button" onClick={runAiOutdo} disabled={outdoLoading}>{outdoLoading && <span className="button-spinner" aria-hidden="true" />} {outdoLoading ? "Arranging…" : "View selected itinerary"}</button>}
+                      {error && <p className="refine-error">{error}</p>}
+                      <button type="button" className="text-button" onClick={() => setCardIndex(0)}>Review these suggestions again</button>
                     </section>
                   )}
                 </>
               ) : (
                 <section className="builder-timeline">
                   <header className="builder-panel-head">
-                    <p className="rec-head-eyebrow">{selectedStops.length} stops · {itinerary?.dates || prettyDate(date)}</p>
-                    <h2 className="rec-head-dest">{outdoPlanId ? "AI Outdo route" : "Your itinerary"}</h2>
-                    {outdoPlanId && itinerary?.optimization && (
-                      <div className="outdo-route-summary">
-                        <span><strong>{formatTripDuration(itinerary.optimization.travelSeconds)}</strong> travel</span>
-                        <span><strong>{formatTripDistance(itinerary.optimization.distanceMeters)}</strong> total</span>
-                        <small>{manualStopOrder ? "Custom order saved · consecutive route legs and Google Maps are updated." : "Drag stops or use the arrows. Each leg shows travel from the previous stop."}</small>
-                      </div>
-                    )}
+                    <p className="rec-head-eyebrow">{selectedStops.length} {selectedStops.length === 1 ? "stop" : "stops"} · {itinerary?.dates || prettyDate(date)}</p>
+                    <h2 className="rec-head-dest">Your itinerary</h2>
+                    {itinerary?.optimization?.distanceMeters > 0 && <p className="itinerary-total-distance">Total distance: {formatTripDistance(itinerary.optimization.distanceMeters, destination)}</p>}
                     <div className="builder-final-actions">
-                      {outdoPlanId && <button className="btn-outline outdo-back-button" type="button" onClick={returnToSuggestions}>← Back to suggestions</button>}
                       {tripMapsUrl && <a className="rec-card-book builder-maps-link" href={tripMapsUrl} target="_blank" rel="noreferrer">Google Maps</a>}
                       <div className="builder-icon-stack">
                         <button className={`builder-icon-btn${calendarState === "done" ? " icon-btn-active" : ""}`} type="button" onClick={addToCalendar} aria-label="Add to calendar" data-label={calendarState === "done" ? "Added" : "Add to calendar"}>
@@ -1794,51 +2212,43 @@ function App() {
                         <button className="builder-icon-btn" type="button" onClick={shareItinerary} aria-label="Share" data-label={shareCopied ? "Copied" : "Share"}>
                           <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M8 12l8-5M8 12l8 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/><circle cx="6" cy="12" r="3" stroke="currentColor" strokeWidth="2"/><circle cx="18" cy="6" r="3" stroke="currentColor" strokeWidth="2"/><circle cx="18" cy="18" r="3" stroke="currentColor" strokeWidth="2"/></svg>
                         </button>
-                        {!outdoPlanId && <button className="builder-icon-btn" type="button" onClick={() => goTo("mood")} aria-label="Edit vibe" data-label="Edit vibe">
+                        <button className="builder-icon-btn" type="button" onClick={() => goTo("mood")} aria-label="Edit vibe" data-label="Edit vibe">
                           <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 20h4l10.5-10.5a2.8 2.8 0 0 0-4-4L4 16v4z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"/><path d="M13 7l4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
-                        </button>}
-                        {!outdoPlanId && <button className="builder-icon-btn" type="button" onClick={generatePlan} aria-label="Regenerate" data-label="Regenerate">
+                        </button>
+                        <button className="builder-icon-btn" type="button" onClick={() => generatePlan()} aria-label="Regenerate" data-label="Regenerate">
                           <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M20 6v5h-5M4 18v-5h5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><path d="M18.5 10a7 7 0 0 0-12-3M5.5 14a7 7 0 0 0 12 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
-                        </button>}
+                        </button>
                       </div>
                     </div>
                   </header>
                   <div className="timeline compact-timeline">
                     {itineraryStops.map((stop, i) => (
                       <article
-                        className={`stop${i === activeTimelineIndex ? " stop-active" : ""}${outdoPlanId ? " outdo-sortable-stop" : ""}`}
+                        className={`stop${i === activeTimelineIndex ? " stop-active" : ""}`}
                         key={`${stop.name}-${i}`}
                         ref={(node) => { timelineRefs.current[i] = node; }}
                         data-index={i}
-                        draggable={Boolean(outdoPlanId)}
-                        onDragStart={() => outdoPlanId && setDragIndex(i)}
-                        onDragOver={(event) => outdoPlanId && event.preventDefault()}
-                        onDrop={() => { if (outdoPlanId) moveSelectedStop(dragIndex, i); setDragIndex(null); }}
                       >
                         <div className="s-pin"><span className="s-pin-index">{String(i + 1).padStart(2, "0")}</span></div>
                         <div className="s-body">
-                          {outdoPlanId && (
-                            <div className="plan-order-controls" aria-label={`Reorder ${stop.name}`}>
-                              <span className="plan-drag-handle" aria-hidden="true">⠿</span>
-                              <button type="button" disabled={i === 0} onClick={() => moveSelectedStop(i, i - 1)} aria-label={`Move ${stop.name} earlier`}>↑</button>
-                              <button type="button" disabled={i === itineraryStops.length - 1} onClick={() => moveSelectedStop(i, i + 1)} aria-label={`Move ${stop.name} later`}>↓</button>
-                            </div>
-                          )}
                           <p className="s-cat">{stop.category}</p>
                           <h4>{stop.name}</h4>
                           <div className="place-meta prominent">
                             {stop.rating && <a className="rating-pill" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(stop.googlePlaceName || stop.name)}`} target="_blank" rel="noreferrer">★ {stop.rating}</a>}
-                            {(stop.specialHoursMetadata?.hasExceptionalHours || stop.specialHoursStatus === "special") && <span className="special-hours-pill">Special hours may apply</span>}
+                            {(() => {
+                              const timing = scheduledOpenStatus(stop, date);
+                              const special = stop.specialHoursMetadata?.hasExceptionalHours || stop.specialHoursStatus === "special";
+                              return <span className={special ? "special-hours-pill" : ""}>{special ? `Special hours · ${timing.label}` : timing.label}</span>;
+                            })()}
                             {priceRange(stop.priceLevel) && <span>{priceRange(stop.priceLevel)}</span>}
                             {stop.address && <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(stop.address)}`} target="_blank" rel="noreferrer">{stop.address}</a>}
                           </div>
-                          <p>{stop.description}</p>
-                          {openingSummary(stop, date) && <p className="opening-guidance">{openingSummary(stop, date)}</p>}
-                          {specialTimingNote(stop) && <p className="opening-guidance special-hours-guidance">{specialTimingNote(stop)}</p>}
-                          {stop.routeFromPrevious && <small className="consecutive-leg">{stop.routeFromPrevious}</small>}
-                          {stop.bookingUrl && (
-                            <a className="rec-card-book itinerary-book-link" href={stop.bookingUrl} target="_blank" rel="noreferrer">
-                              Check availability and book
+                          <p>{concisePlaceDescription(stop.description)}</p>
+                          {i > 0 && (stop.routeDistanceMeters != null || stop.routeFromPrevious) && <small className="consecutive-leg">{stop.routeDistanceMeters != null ? `${formatTripDistance(stop.routeDistanceMeters, destination)} from the previous stop${stop.routeDurationSeconds ? ` · about ${formatTripDuration(stop.routeDurationSeconds)}` : ""}` : stop.routeFromPrevious}</small>}
+                          {(specialTimingNote(stop) || stop.travelTip || stop.bestTimeToVisit || stop.seasonalNote) && <p className={`opening-guidance${specialTimingNote(stop) ? " special-hours-guidance" : ""}`}>{specialTimingNote(stop) || stop.travelTip || stop.bestTimeToVisit || stop.seasonalNote}</p>}
+                          {openTableBookingUrl(stop, destination, date, planFor) && (
+                            <a className="rec-card-book itinerary-book-link" href={openTableBookingUrl(stop, destination, date, planFor)} target="_blank" rel="noreferrer">
+                              Find a table on OpenTable
                               <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
                             </a>
                           )}
@@ -1858,7 +2268,7 @@ function App() {
         <div className="mobile-tray-sheet" onClick={() => setMobileTrayOpen(false)}>
           <div className="mobile-tray-inner" onClick={(e) => e.stopPropagation()}>
             <div className="rec-more-grab" />
-            <div className="mobile-tray-title"><strong>Your outing board</strong><span>Sort and remove</span></div>
+            <div className="mobile-tray-title"><strong>Selected stops</strong><span>Sort and remove</span></div>
             {selectedStops.map((stop, i) => (
               <article
                 className={`mobile-sort-row${dragIndex === i ? " mobile-sort-row-dragging" : ""}`}
@@ -1883,10 +2293,10 @@ function App() {
                 </button>
                 <img src={stopImage(stop, i)} alt="" />
                 <p>{stop.name}</p>
-                {!outdoPlanId && <button type="button" onClick={() => removeSelectedStop(i)}>×</button>}
+                <button type="button" onClick={() => removeSelectedStop(i)}>×</button>
               </article>
             ))}
-            <button className="rec-mbar-btn rec-mbar-primary stardust-plan ai-outdo-button" disabled={!selectedStops.length || outdoLoading} onClick={runAiOutdo}>✦ {outdoLoading ? "Arranging…" : "AI Outdo"} ✦</button>
+            {!itineraryBuilt && <button className="rec-mbar-btn rec-mbar-primary" disabled={!selectedStops.length || outdoLoading} onClick={runAiOutdo}>{outdoLoading && <span className="button-spinner" aria-hidden="true" />} {outdoLoading ? "Generating itinerary…" : "Generate itinerary"}</button>}
           </div>
         </div>
       )}
@@ -1927,7 +2337,7 @@ function LegalPage({ eyebrow, title, sections, onBack }) {
   return (
     <main className="screen legal-screen on">
       <section className="legal-card">
-        <button className="legal-back" type="button" onClick={onBack}>← Back to sign in</button>
+        <button className="legal-back hover-arrow hover-arrow-back" type="button" onClick={onBack}>Back to sign in</button>
         <p className="label">{eyebrow}</p>
         <h2>{title}</h2>
         <p className="legal-updated">Last updated: July 9, 2026</p>
@@ -1957,4 +2367,13 @@ function Select({ label, value, setValue, options }) {
   );
 }
 
-createRoot(document.getElementById("root")).render(<App />);
+// Vite HMR re-runs this module's top-level code on every edit. Without
+// reusing the root across reloads, createRoot() mounts a second <App/>
+// onto the same DOM node each time, stacking duplicate content on screen.
+const rootContainer = document.getElementById("root");
+const root = import.meta.hot?.data.root || createRoot(rootContainer);
+if (import.meta.hot) {
+  import.meta.hot.data.root = root;
+  import.meta.hot.accept();
+}
+root.render(<App />);

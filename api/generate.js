@@ -65,12 +65,16 @@ function mergeGeneratedPlans(plans = []) {
       const key = normalizePlaceName(stop.googlePlaceName || stop.name);
       if (!key || seen.has(key)) return;
       seen.add(key);
+      const rawSource = String(stop.discoverySource || "").trim().toLowerCase();
+      const discoverySource = rawSource === "reddit" ? "Reddit" : rawSource === "instagram" ? "Instagram" : undefined;
       candidates.push({
         ...stop,
+        discoverySource,
         sampleSource: sampleIndex + 1,
         _sampleIndex: sampleIndex,
         _stopIndex: stopIndex,
-        _score: Number(stop.personalizationScore) || Math.max(1, 10 - stopIndex)
+        _social: Boolean(discoverySource),
+        _score: (Number(stop.personalizationScore) || Math.max(1, 10 - stopIndex)) + (discoverySource ? 0.6 : 0)
       });
     });
   });
@@ -106,7 +110,12 @@ function mergeGeneratedPlans(plans = []) {
   if (endProgressionCandidate && !selectedCandidates.includes(endProgressionCandidate) && selectedCandidates.length) {
     selectedCandidates[selectedCandidates.length - 1] = endProgressionCandidate;
   }
-  const stops = selectedCandidates.map(({ _sampleIndex, _stopIndex, _score, ...stop }) => stop);
+  const socialCandidate = candidates.find((stop) => stop._social);
+  if (socialCandidate && !selectedCandidates.includes(socialCandidate) && selectedCandidates.length > 1) {
+    const replaceIndex = [...selectedCandidates].reverse().findIndex((stop) => !stop._social && stop.progressionRole !== "near_destination");
+    if (replaceIndex !== -1) selectedCandidates[selectedCandidates.length - 1 - replaceIndex] = socialCandidate;
+  }
+  const stops = selectedCandidates.map(({ _sampleIndex, _stopIndex, _score, _social, ...stop }) => stop);
 
   return {
     ...validPlans[0],
@@ -382,24 +391,34 @@ async function generateWithGemini(payload, sampleIndex = 0) {
   const sourceStrategies = [
     {
       id: "traditional",
-      instruction: "Prioritize traditional, established information sources: official venue sites, tourism boards, respected local publications, newspapers, magazines, and reputable editorial guides. Do not add a social-media discovery angle to this sample."
+      instruction: "Prioritize traditional, established information sources: official venue sites, tourism boards, respected local publications, newspapers, magazines, and reputable editorial guides. Do not add a social-media discovery angle to this sample. Leave discoverySource omitted on every stop in this sample — do not claim Reddit or Instagram provenance here."
     },
     {
       id: "social-community",
-      instruction: "Prioritize non-traditional public discovery sources. You MUST run multiple Google searches explicitly targeting publicly indexed Instagram results, alongside Reddit discussions and TikTok results, for niche, current, locally loved ideas. Do not stop after Reddit. Try venue names, neighborhoods, hashtags, and local creator roundups in Instagram-focused queries. Include at least one Instagram-surfaced candidate when credible public evidence exists. Treat every social signal as a lead rather than a fact, and verify every selected venue with search_places before recommending it."
+      instruction: "Your job in this sample is specifically to surface places that traditional search would miss. Run multiple Google searches explicitly targeting publicly indexed Reddit threads (site:reddit.com or \"reddit\" + destination + category) and Instagram-related results (venue names, neighborhoods, hashtags, local creator roundups) for niche, current, locally loved ideas — the kind of underrated spot a local would mention in a subreddit thread or a small account's geotagged post, not the top tourist result. This sample MUST return at least 2 stops that were genuinely surfaced this way, with credible public evidence behind them (a real thread, post, or discussion you can point to in substance, not just a guess). For exactly those stops, set discoverySource to the literal string \"Reddit\" or \"Instagram\" — whichever channel actually surfaced it — and let requirementMatch or the description reflect why it's a rare/underrated find. Every other stop in this sample must leave discoverySource omitted. Treat every social signal as a lead rather than a fact, and verify every selected venue with search_places before recommending it. If, after genuinely trying, no credible social-sourced candidate exists for this destination, it is better to return fewer stops than to fabricate one — never invent or guess a discoverySource."
     },
     {
       id: "traditional-exploratory",
-      instruction: "Use traditional, established sources again, but explore broadly before choosing. Do not greedily settle on the first famous or highest-rated results. Build a wider candidate set, investigate less-obvious options, and select strong preference matches that the first traditional search could miss."
+      instruction: "Use traditional, established sources again, but explore broadly before choosing. Do not greedily settle on the first famous or highest-rated results. Build a wider candidate set, investigate less-obvious options, and select strong preference matches that the first traditional search could miss. Leave discoverySource omitted on every stop in this sample."
     }
   ];
   const sourceStrategy = sourceStrategies[sampleIndex] || sourceStrategies[0];
+  const geographicRoles = [
+    "For a broad destination, build a balanced anchor set across two or three well-known but meaningfully different geographic clusters.",
+    "For a broad destination, deliberately research different cities or subregions from the most obvious first cluster; use the search calls to open a second geographic lane.",
+    "For a broad destination, seek geographic gaps, less-obvious regions, and exceptional preference matches that a conventional first pass would miss."
+  ];
+  const geographicRole = geographicRoles[sampleIndex] || geographicRoles[0];
 
   const systemInstruction = `You are outdone's senior outing curator. Your job is to choose a small, highly personalized set of real places, not to fill a quota.
 
-The user's SPECIFIC REQUIREMENTS are the strongest personalization signal. Read the entire input holistically and stay closely aligned with it; do not translate it into a canned schedule or fixed meal template. Use its timing, exclusions, accessibility needs, budget, interests, and other context to decide what to search for, how to phrase every search_places call, which candidates to investigate, and which places make the final set. For example, late-night input should drive late-night discovery rather than breakfast or daytime defaults. Mood is the second strongest signal. Transport preference, date, group, diet, and optional end destination are important context.
+The user's SPECIFIC REQUIREMENTS are the strongest personalization signal. Read the entire input holistically and stay closely aligned with it; do not translate it into a canned schedule or fixed meal template. Use its timing, exclusions, accessibility needs, budget, interests, and other context to decide what to search for, how to phrase every search_places call, which candidates to investigate, and which places make the final set. For example, late-night input should drive late-night discovery rather than breakfast or daytime defaults. Mood is the second strongest signal. Transport preference, date, group, diet, and optional end destination are important context. Never present an obvious setup fact as if it were a useful insight. Phrases such as "a temple for a family in India" merely repeat the user's query, group, and destination. Instead identify a genuinely distinguishing quality—architecture, ritual, setting, history, atmosphere, access, a signature experience, or another verified reason to choose that particular place. If the setup adds no non-obvious insight, omit it rather than padding the description.
 
-First reason privately about: (1) the right number of suggestions from 1 through 10, (2) the strongest personalized first place, and (3) an appropriate travel radius. The first suggested place establishes the geographic center. Keep later places within a practical approximate radius for the preferred mode, but favor an exceptional preference match over literal geographic specificity. Walking normally implies a compact radius, public transit a moderate radius, and car a wider radius. A broad or narrow user location must never override a strong preference match.
+Every stop description must be a genuinely concise summary: one or two complete sentences and no more than 240 characters. Lead with the distinctive reason to choose the place and the most relevant requirement match. Do not trail off, use an ellipsis, repeat the address, or rely on UI clipping to shorten the copy.
+
+First reason privately about: (1) whether the destination is a precise venue/neighborhood, city, state/province, or broad country/region, (2) the right number of suggestions from 2 through 10, (3) the strongest personalized first place, and (4) an appropriate geographic scope. Each independent sample MUST return 2 to 10 real places. Normally target 5 places (usually 4 to 6). Use 2 or 3 only when a strict requirement or genuinely tiny search area leaves very few high-confidence matches; use 7 to 10 when a broad destination and strong signals support more high-value variety. Never return fewer merely to save research effort.
+
+Treat destination specificity as a multiplier on transport radius, not as a replacement for transport. The base ordering must remain CAR > PUBLIC TRANSIT > WALKING. Walking must always stay tighter than public transit at the same specificity. A precise venue or neighborhood should produce a compact nearby search. A city permits a larger local search. A state, province, country, or large region permits multiple clusters: expand the most for car, only modestly for walking, and keep public transit primarily within usable transit systems even though its base radius is larger than walking. Car may reasonably span roughly 30 miles for a local query or hundreds of miles across a broad region; walking may progress from a very compact area to a few practical walkable clusters, never a continuous 30-mile walking radius. If transport is missing, use Car as the radius default. For broad destinations, NEVER collapse the whole recommendation set into one arbitrary city: deliberately cover multiple meaningful cities or regions, while allowing a few strong suggestions to cluster together where that improves the trip. Walking, car, or public transit describes local mobility after arrival; it must not forbid intercity travel. Intercity flights, high-speed rail, ferries, or long-distance trains are valid between geographic clusters and should be stated plainly in routeFromPrevious or travel guidance.
 
 Only suggest places that are plausibly open on the requested day and usable at a time aligned with the user's input. Compare the actual hours returned by search_places with that input before selecting a place; a place whose hours conflict with the user's stated plan is not a valid recommendation. Treat opening hours as a constraint, while acknowledging uncertainty in openTimingGuidance. Meals are optional. Include them only when the user's signals and likely outing duration make them useful. Respect dietary restrictions strictly.
 
@@ -428,8 +447,12 @@ ${requirements?.trim() || "No additional requirements were provided."}
 This is independent sample ${sampleIndex + 1} of 3.
 SOURCE STRATEGY FOR THIS SAMPLE:
 ${sourceStrategy.instruction}
+GEOGRAPHIC ROLE FOR THIS SAMPLE:
+${geographicRole}
 
-Stay faithful to the user's requirements while following that source strategy. The first stop must be your strongest personalized choice and geographic anchor. Return between 1 and 10 stops—decide the count before choosing places. If an optional end destination is provided, you MUST include at least one genuine recommendation physically in or near that exact end city, verify it with search_places using the full end-destination string, and mark it progressionRole "near_destination". The end destination itself must not be included merely because it was supplied. Your response will be discarded if that verified destination-side recommendation or its progressionRole metadata is missing.
+Stay faithful to the user's requirements while following that source strategy. The first stop must be your strongest personalized choice and geographic anchor. Return between 2 and 10 stops; target about 5 unless there is a strong, explicit quality reason to go lower or higher. If an optional end destination is provided, you MUST include at least one genuine recommendation physically in or near that exact end city, verify it with search_places using the full end-destination string, and mark it progressionRole "near_destination". The end destination itself must not be included merely because it was supplied. Your response will be discarded if that verified destination-side recommendation or its progressionRole metadata is missing.
+
+SCOPE RULE: Classify "${destination}" by specificity before searching. For a broad search, assign the 2 to 4 search_places calls to different named clusters rather than repeating the first city's category query. Follow this sample's geographic role so the three parallel samples are more likely to contribute different clusters. Apply the transport hierarchy and specificity multiplier above. Do not treat the preferred transport as an intercity restriction. When stops require a flight, high-speed train, ferry, or other mode between regions, keep the stop if it is a strong match and identify that intercity leg honestly.
 
 Before returning JSON, use Google Search for the special-day check and make 2 to 4 focused search_places calls total—never more than 4. Plan those calls from the user's actual words: include relevant timing, interests, constraints, and location context in the queries, then compare the returned hours, specialDays, reviews, meal service, and place details against the input. Use category searches to compare candidates, then exact-name searches only where identity or evidence is ambiguous. Reserve the final response for the required JSON; do not continue researching after the tool budget is used. The final recommendations must remain faithful to the same user input that shaped the searches. Do not select a business marked permanently closed. Assign every food or drink stop a precise mealRole so the deterministic planner can keep it in the appropriate part of the outing. Assign progressionRole to express whether a place semantically belongs nearer the starting side, the destination side, or neither; this is a planning preference, never a fabricated distance claim.
 
@@ -440,7 +463,7 @@ JSON schema:
   "selectedMood": "string",
   "summary": "string",
   "planningDecision": {
-    "suggestedCount": 1,
+    "suggestedCount": 5,
     "countReason": "brief reason this many places fit",
     "inferredRadiusKm": 3,
     "radiusReason": "brief transport and preference rationale",
@@ -452,7 +475,7 @@ JSON schema:
       "period": "PM",
       "category": "ART · GALLERY",
       "name": "Specific place name",
-      "description": "Specific reason this place matches the requirements and mood",
+      "description": "One or two complete sentences, at most 240 characters, summarizing the distinctive reason this place matches",
       "requirementMatch": "which user signal this fulfills",
       "personalizationScore": 9,
       "mealRole": "breakfast, brunch, lunch, coffee, snack, dessert, dinner, drinks, or null",
@@ -466,7 +489,7 @@ JSON schema:
       "specialHoursNote": "place-specific evidence-based note about holiday, event, closure, or exceptional hours; otherwise omit",
       "priceLevel": 2,
       "bookingUrl": "official URL when genuinely known, otherwise omit",
-      "discoverySource": "Reddit, Instagram, official/local knowledge, or general web; omit if unsupported"
+      "discoverySource": "Only \"Reddit\" or \"Instagram\", and only when this exact stop was genuinely surfaced through that channel with credible public evidence during this search. Omit entirely for every other stop — do not use it for official sites, general web results, or guesses."
     }
   ]
 }`;
@@ -562,10 +585,14 @@ JSON schema:
   const parts = raw?.candidates?.[0]?.content?.parts || [];
   const text = parts.filter((part) => typeof part.text === "string").map((part) => part.text).join("\n");
   if (!text) throw new Error("Gemini returned an empty response after Places research.");
-  if (!researchMetadata.googleSearchUsed) throw new Error("Gemini did not complete the required Google Search special-day check.");
-  if (researchMetadata.placesToolCalls < 2) throw new Error("Gemini did not complete the required Google Places research.");
+  if (!researchMetadata.googleSearchUsed && researchMetadata.placesToolCalls < 1) {
+    throw new Error("Gemini did not complete any grounded research for this sample.");
+  }
 
   const parsed = safeJsonParse(text);
+  if (!Array.isArray(parsed.stops) || parsed.stops.length < 2 || parsed.stops.length > 10) {
+    throw new Error("Gemini must return between 2 and 10 researched places for each sample.");
+  }
   if (endDestination && !parsed.stops?.some((stop) => stop.progressionRole === "near_destination")) {
     throw new Error("Gemini did not research and include a recommendation near the requested end destination.");
   }
