@@ -1,7 +1,7 @@
 /* global process */
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
-const GEMINI_MODEL = "gemini-2.5-flash-lite";
+const GEMINI_MODEL = "gemini-3.5-flash-lite";
 
 const FALLBACK_IMAGES = [
   "https://images.pexels.com/photos/1619317/pexels-photo-1619317.jpeg?auto=compress&cs=tinysrgb&w=1400",
@@ -518,7 +518,7 @@ JSON schema:
     const requestBody = {
       systemInstruction: { parts: [{ text: systemInstruction }] },
       contents,
-      generationConfig: { temperature: 0.88, maxOutputTokens: 8192, responseMimeType: "application/json" }
+      generationConfig: { maxOutputTokens: 8192, responseMimeType: "application/json" }
     };
     if (!finalJsonTurn) {
       requestBody.tools = [{ google_search: {} }, placesSearchTool];

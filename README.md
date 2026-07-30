@@ -59,7 +59,7 @@ GOOGLE_MAPS_API_KEY=...
 VITE_GOOGLE_CLIENT_ID=...
 ```
 
-Recommendations use the stable `gemini-2.5-flash-lite` model. `GEMINI_API_KEY`
+Recommendations use the stable `gemini-3.5-flash-lite` model. `GEMINI_API_KEY`
 must be a key owned by the Google Cloud or Google AI Studio project authorized
 for this deployment; never reuse an employer-issued or otherwise third-party key.
 
