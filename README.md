@@ -59,6 +59,10 @@ GOOGLE_MAPS_API_KEY=...
 VITE_GOOGLE_CLIENT_ID=...
 ```
 
+Recommendations use the stable `gemini-2.5-flash-lite` model. `GEMINI_API_KEY`
+must be a key owned by the Google Cloud or Google AI Studio project authorized
+for this deployment; never reuse an employer-issued or otherwise third-party key.
+
 For `GOOGLE_MAPS_API_KEY`, use a server-safe key for the Vercel API routes. Do not use website referrer restrictions on this server key, because the requests come from Vercel, not directly from the browser.
 
 Recommended Google APIs:
