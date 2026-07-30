@@ -1,6 +1,7 @@
 /* eslint-disable no-unused-vars, no-empty, react-refresh/only-export-components, react-hooks/exhaustive-deps */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import FlightGame from "./FlightGame.jsx";
 import "./styles.css";
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
@@ -41,8 +42,12 @@ function priceLabel(p) {
 
 function priceRange(p) {
   const label = priceLabel(p);
-  const ranges = { "$": "$10–20", "$$": "$20–50", "$$$": "$50–100", "$$$$": "$100+" };
+  const ranges = { "$": "$10–20", "$$": "$20–30", "$$$": "$50–100", "$$$$": "$100+" };
   return label ? ranges[label] : null;
+}
+
+function joinRequirements(chips = [], draft = "") {
+  return [...chips, draft.trim()].filter(Boolean).join("; ");
 }
 
 // Nearest-neighbor ordering by coordinates when available
@@ -89,27 +94,211 @@ const loginItins = {
 };
 
 const moodActivitySuggestions = {
-  adventurous: ["Ziplining", "Cliff jumping", "Paragliding", "White-water rafting", "Bungee jump"],
-  "slow-scenic": ["Sunset boat ride", "Lakeside cafe", "Golden hour picnic", "Scenic ferry crossing"],
-  cultural: ["Museum deep-dive", "Historic walking tour", "Temple visit", "Local artisan market"],
-  culinary: ["Street food crawl", "Cooking class", "Food market tour", "Chef's tasting menu"],
-  offbeat: ["Hidden speakeasy", "Tiny obscure museum", "Secret garden", "Underground art venue"],
-  social: ["Rooftop bar", "Night market", "Live music venue", "Group cooking class"],
-  active: ["Kayaking", "Sunrise hike", "Bike tour", "Paddleboarding"],
-  "night-owl": ["Jazz bar", "Stargazing", "Night market crawl", "Midnight rooftop views"],
-  romantic: ["Sunset beach walk", "Candlelit dinner", "Stargazing", "Golden hour viewpoint"],
+  adventurous: ["places with ziplining", "a guided cliff-jumping experience", "beginner-friendly paragliding", "white-water rafting with safety gear", "a memorable bungee jump"],
+  "slow-scenic": ["a quiet sunset boat ride", "a lakeside cafe with a view", "a golden-hour picnic spot", "a scenic ferry crossing"],
+  cultural: ["a museum worth a deep dive", "a history-focused walking tour", "a peaceful temple visit", "a local artisan market"],
+  culinary: ["a street-food crawl", "a hands-on cooking class", "a food market locals love", "a chef's tasting menu"],
+  offbeat: ["a hidden speakeasy", "a tiny obscure museum", "a secret garden", "an underground art venue"],
+  social: ["a lively rooftop bar", "a busy night market", "a local live-music venue", "a group-friendly cooking class"],
+  active: ["a beginner-friendly kayaking route", "a sunrise hike", "a guided bike tour", "a paddleboarding spot"],
+  "night-owl": ["a late-night jazz bar", "a quiet stargazing spot", "a night-market crawl", "midnight rooftop views"],
+  romantic: ["a sunset beach walk", "a candlelit dinner", "a quiet stargazing spot", "a golden-hour viewpoint"],
 };
 
-function buildGoogleMapsTripUrl(stops = [], travelMode = "walking") {
-  const names = stops.map((stop) => stop.googlePlaceName || stop.name || stop.photoQuery).filter(Boolean).slice(0, 10);
+const universalRequirementSuggestions = [
+  "budget under $60",
+  "wheelchair accessible places",
+  "restaurants within $10–$20",
+  "avoid large crowds",
+  "mostly indoor activities",
+  "kid-friendly places with restrooms",
+];
+
+const DESKTOP_LOADER_PATH = "M78 516 C190 385 260 588 374 412 C475 258 554 356 626 238 C724 78 830 190 878 322 C922 444 1014 428 1122 218";
+const MOBILE_LOADER_PATH = "M600 592 C510 532 690 470 600 408 C505 340 695 282 600 216 C535 170 660 120 600 72";
+const DESKTOP_LOADER_NODES = [[78, 516], [374, 412], [626, 238], [878, 322], [1122, 218]];
+const MOBILE_LOADER_NODES = [[600, 592], [586, 465], [600, 338], [610, 207], [600, 72]];
+const DESKTOP_GAME_HURDLES = [
+  { x: 260, y: 484, threshold: 24, icon: "🌿", label: "garden" },
+  { x: 508, y: 326, threshold: 45, icon: "🏛️", label: "museum" },
+  { x: 760, y: 188, threshold: 67, icon: "🌵", label: "cactus" },
+  { x: 997, y: 384, threshold: 86, icon: "🏢", label: "building" },
+];
+const MOBILE_GAME_HURDLES = [
+  { x: 570, y: 472, threshold: 24, icon: "🌿", label: "garden" },
+  { x: 626, y: 354, threshold: 45, icon: "🏛️", label: "museum" },
+  { x: 570, y: 246, threshold: 67, icon: "🌵", label: "cactus" },
+  { x: 624, y: 132, threshold: 86, icon: "🏢", label: "building" },
+];
+
+const TRAVEL_GAME_STORIES = {
+  runner: [
+    { id: "home", label: "Escape the morning", sky: "🌤️", backdrop: "🏠  🏘️  🌳", obstacles: ["💻", "🛏️", "📱", "☕"], intro: "Alarm off. Escape the workday and start the trip!", win: "Great — you escaped work!", miss: "Your laptop won. Respawning…" },
+    { id: "street", label: "Catch the connection", sky: "☀️", backdrop: "🏙️  🚦  🚉", obstacles: ["🚗", "🚶", "🐦", "🪧"], intro: "The connection is leaving. Thread through the city!", win: "Perfect timing — you caught the connection!", miss: "A commuter collision. Back on your feet…" },
+    { id: "airport", label: "Airport sprint", sky: "✈️", backdrop: "🛫  🛂  🛄", obstacles: ["🧳", "🛂", "🧺", "🚧"], intro: "Final boarding. Clear security and reach the gate!", win: "Gate reached — destination unlocked!", miss: "Security sent you back. Quick respawn…" },
+  ],
+  car: [
+    { id: "garage", label: "Garage getaway", sky: "🌤️", backdrop: "🏠  🅿️  🏢", obstacles: ["🚧", "📦", "🛒", "☕"], intro: "Keys found. Escape the garage without spilling the coffee!", win: "Clean exit — road trip started!", miss: "Tiny fender-bender. New car arriving…" },
+    { id: "traffic", label: "City traffic", sky: "☀️", backdrop: "🏙️  🚦  🌉", obstacles: ["🚕", "🚲", "🕳️", "🚚"], intro: "Rush hour ahead. Jump the chaos and keep moving!", win: "You beat rush hour!", miss: "Traffic won that round. Back on the road…" },
+    { id: "open-road", label: "Destination drive", sky: "🌄", backdrop: "🛣️  ⛰️  🌲", obstacles: ["🦌", "🪨", "🚜", "🧳"], intro: "Open road. Follow the landscape to your destination!", win: "Scenic route cleared — destination unlocked!", miss: "Wrong turn. Recalculating dramatically…" },
+  ],
+  train: [
+    { id: "platform", label: "Platform dash", sky: "🚉", backdrop: "🏙️  🚆  🕰️", obstacles: ["🧳", "🚶", "🪧", "☕"], intro: "Doors are closing. Clear the platform!", win: "All aboard — perfect connection!", miss: "Missed that carriage. The next one is here…" },
+    { id: "metro", label: "Metro tunnels", sky: "💡", backdrop: "🚇  🚦  🧱", obstacles: ["🚧", "🔌", "🐦", "🧰"], intro: "Signals ahead. Duck the wires and clear the tunnel!", win: "Signal green — express route unlocked!", miss: "Signal red. Resetting the train…" },
+    { id: "scenic-rail", label: "Scenic rail", sky: "🌄", backdrop: "🚆  ⛰️  🌲", obstacles: ["🪨", "🌲", "🦌", "🌉"], intro: "The city is behind you. Ride into the destination landscape!", win: "Final station reached — destination unlocked!", miss: "A very theatrical derailment. Back on track…" },
+  ],
+};
+
+function travelGameMode(transportMode = "") {
+  if (!transportMode || transportMode === "Car") return "car";
+  if (transportMode === "Public transit") return "train";
+  return "runner";
+}
+
+function destinationGameTheme(destination = "") {
+  const value = destination.toLowerCase();
+  if (/udaipur|rajasthan/.test(value)) return { className: "udaipur", icons: "🏰  🌊  ⛰️", label: "Udaipur horizon" };
+  if (/desert|sahara|dubai|abu dhabi|emirates|saudi|qatar|oman|morocco|egypt|jordan|namibia|arizona|nevada/.test(value)) return { className: "desert", icons: "🏜️  🐪  🌵", label: "desert horizon" };
+  if (/beach|island|coast|seaside|hawaii|bali|maldives|caribbean|goa|sri lanka|philippines|fiji|mauritius|seychelles|miami|cancun|phuket|amalfi|santorini|ibiza|mallorca|croatia/.test(value)) return { className: "coast", icons: "🌴  🌊  ⛵", label: "coastal horizon" };
+  if (/mountain|alps|himalaya|swiss|switzerland|nepal|bhutan|austria|colorado|patagonia|dolomites|andes|banff|rockies/.test(value)) return { className: "mountain", icons: "🏔️  🌲  🦅", label: "mountain horizon" };
+  if (/india|italy|spain|turkey|mexico|kyoto|rome|florence|venice|prague|vienna|budapest|lisbon|porto|seville|agra|jaipur|varanasi|istanbul/.test(value)) return { className: "historic", icons: "🏛️  🏰  🕍", label: "heritage horizon" };
+  if (/china|japan|korea|singapore|hong kong|new york|london|paris|tokyo|seoul|shanghai|beijing|chicago|toronto|sydney|melbourne|berlin|city/.test(value)) return { className: "city", icons: "🏙️  🏮  🚄", label: "city horizon" };
+  return { className: "landscape", icons: "🌄  🌳  🏘️", label: "destination horizon" };
+}
+
+function discoveryLinksForStop(stop = {}, destination = "") {
+  // Only surface a source badge when this specific stop was genuinely found
+  // via that channel (set by the model as discoverySource) — not decoration
+  // on every card. Most stops will have none, and that's the point: the
+  // badge is a signal of real search diversity, not a stock link set.
+  const source = String(stop.discoverySource || "").trim().toLowerCase();
+  if (source !== "reddit" && source !== "instagram") return [];
+  const subject = `${stop.name || "travel ideas"} ${destination}`.trim();
+  const label = source === "reddit" ? "Reddit" : "Instagram";
+  const url = source === "reddit"
+    ? `https://www.google.com/search?q=${encodeURIComponent(`site:reddit.com ${subject}`)}`
+    : `https://www.google.com/search?q=${encodeURIComponent(`site:instagram.com ${subject}`)}`;
+  return [{ label, url }];
+}
+
+function isRestaurantStop(stop = {}) {
+  return Boolean(stop.mealRole) || /restaurant|cafe|café|bar|bakery|food|dining|brunch|breakfast|lunch|dinner|drinks/i.test(
+    `${stop.category || ""} ${stop.description || ""}`
+  );
+}
+
+function openTableBookingUrl(stop = {}, destination = "", tripDate = "", planFor = "") {
+  if (!isRestaurantStop(stop)) return null;
+  if (/^https?:\/\//i.test(stop.bookingUrl || "")) return stop.bookingUrl;
+  const partySize = planFor === "Solo" ? 1 : /Family|Friends|Colleagues|Kid friendly/i.test(planFor) ? 4 : 2;
+  const hour = /breakfast/i.test(stop.mealRole || "") ? "09:00:00"
+    : /brunch|lunch/i.test(stop.mealRole || "") ? "12:30:00"
+      : /coffee|snack|dessert/i.test(stop.mealRole || "") ? "15:00:00"
+        : "19:00:00";
+  const params = new URLSearchParams({
+    term: `${stop.googlePlaceName || stop.name || ""} ${stop.address || destination}`.trim(),
+    covers: String(partySize)
+  });
+  if (/^\d{4}-\d{2}-\d{2}$/.test(tripDate || "")) params.set("dateTime", `${tripDate}T${hour}`);
+  return `https://www.opentable.com/s?${params.toString()}`;
+}
+
+function contextualRequirementSuggestions({ query, planFor, diet, transportMode }) {
+  const typed = String(query || "").trim().toLowerCase();
+  if (typed.length < 2) return [];
+  const foodPreference = /vegetarian|vegan|gluten|halal|kosher/i.test(diet || "") ? `${diet.toLowerCase()} ` : "";
+  const walkable = transportMode === "Walking" ? "walkable " : "";
+  const sharedMeal = /Colleagues|Friends|Family|Kid friendly/.test(planFor || "") ? "restaurants with shareable menus" : "small regional restaurants";
+  const groups = [
+    {
+      aliases: ["chin", "chinese", "chinese res", "chinatown", "dim sum"],
+      values: [
+        `${foodPreference}Chinese restaurants with regional specialties`,
+        "a Chinatown food crawl with three distinct stops",
+        "dim sum with excellent vegetarian choices",
+        "traditional Chinese tea houses",
+        sharedMeal,
+      ],
+    },
+    {
+      aliases: ["res", "restaurant", "dinner", "lunch", "food", "eat"],
+      values: [
+        `${foodPreference}restaurants known for one signature dish`,
+        "a memorable dinner away from the tourist crowds",
+        "restaurants within $10–$20",
+        `a ${walkable}neighborhood food crawl`,
+        sharedMeal,
+      ],
+    },
+    { aliases: ["temple", "temples", "shrine", "spiritual"], values: ["temples with exceptional architecture", "peaceful sunrise temple visits", "living temples known for local rituals", "lesser-known temple complexes", "temple towns worth a day trip", "temple gardens with quiet places to pause"] },
+    { aliases: ["coffee", "cafe", "café"], values: ["quiet cafes with a strong local identity", `a ${walkable}specialty coffee crawl`, "coffee shops with plenty of seating", "historic cafes with excellent pastries"] },
+    { aliases: ["museum", "art", "culture", "gallery"], values: ["small museums with unusual collections", `a ${walkable}independent gallery route`, "cultural places locals repeatedly recommend", "hands-on museums worth lingering in"] },
+    { aliases: ["park", "outdoor", "nature", "garden", "hike"], values: ["easy outdoor activities with memorable views", "scenic parks with places to rest", `a ${walkable}garden route`, "short trails with a strong sense of place"] },
+    { aliases: ["bar", "night", "drink", "music"], values: ["lively bars with a distinctive atmosphere", "live music with room for conversation", "a late-night neighborhood crawl", "low-key cocktail bars locals return to"] },
+    { aliases: ["shop", "market", "souvenir"], values: ["markets known for local crafts", "independent shops and working makers", `a ${walkable}shopping street`, "food markets with regional specialties"] },
+    { aliases: ["wheel", "access", "mobility"], values: ["wheelchair accessible places", "step-free restaurants and attractions", "accessible restrooms along the route"] },
+    { aliases: ["budget", "cheap", "under", "$"], values: ["a full day under $60", "free or low-cost places", "restaurants within $10–$20"] },
+  ];
+  const matched = groups.filter((group) => group.aliases.some((alias) => alias.includes(typed) || typed.includes(alias)));
+  const results = matched.flatMap((group) => group.values);
+  if (!results.length && typed.length >= 4) {
+    results.push(`${typed} with a distinctive local angle`, `${typed} locals recommend`, `lesser-known ${typed}`);
+  }
+  return [...new Set(results)].slice(0, 6);
+}
+
+function buildGoogleMapsTripUrl(stops = [], travelMode = "driving") {
+  const routeStops = stops.filter((stop) => stop.googlePlaceName || stop.name || stop.photoQuery).slice(0, 10);
+  const names = routeStops.map((stop) => stop.googlePlaceName || stop.name || stop.photoQuery);
   if (!names.length) return "";
-  if (names.length === 1) return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(names[0])}`;
+  if (names.length === 1) {
+    const placeId = routeStops[0].placeId;
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(names[0])}${placeId ? `&query_place_id=${encodeURIComponent(placeId)}` : ""}`;
+  }
   const origin = names[0];
   const destination = names[names.length - 1];
   const waypoints = names.slice(1, -1).join("|");
   let url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&travelmode=${travelMode}`;
+  if (routeStops[0].placeId) url += `&origin_place_id=${encodeURIComponent(routeStops[0].placeId)}`;
+  if (routeStops[routeStops.length - 1].placeId) url += `&destination_place_id=${encodeURIComponent(routeStops[routeStops.length - 1].placeId)}`;
   if (waypoints) url += `&waypoints=${encodeURIComponent(waypoints)}`;
+  const waypointIds = routeStops.slice(1, -1).map((stop) => stop.placeId || "");
+  if (waypointIds.length && waypointIds.every(Boolean)) url += `&waypoint_place_ids=${encodeURIComponent(waypointIds.join("|"))}`;
   return url;
+}
+
+function stablePlanFingerprint(stops, date, transportMode) {
+  const identities = stops.map((stop) => stop.placeId || `${stop.name}|${stop.address || ""}`).sort();
+  const input = JSON.stringify({ identities, date, transportMode: transportMode || "Car", version: 2 });
+  let hash = 2166136261;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `v2-${(hash >>> 0).toString(36)}`;
+}
+
+function formatTripDuration(seconds) {
+  const minutes = Math.max(0, Math.round(Number(seconds || 0) / 60));
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return hours ? `${hours}h ${remainder ? `${remainder}m` : ""}`.trim() : `${remainder}m`;
+}
+
+function usesImperialDistance(place = "") {
+  return /\b(usa|united states|u\.s\.|united kingdom|uk|england|scotland|wales|northern ireland|liberia|myanmar)\b/i.test(place)
+    || /\b(london|manchester|birmingham|liverpool|leeds|glasgow|edinburgh|cardiff|belfast)\b/i.test(place)
+    || /,\s*[A-Z]{2}(?:,|\s|$)/.test(place);
+}
+
+function formatTripDistance(meters, place = "") {
+  const value = Number(meters || 0);
+  if (usesImperialDistance(place)) {
+    const miles = value / 1609.344;
+    return `${miles.toFixed(miles >= 10 ? 0 : 1)} mi`;
+  }
+  const kilometers = value / 1000;
+  return `${kilometers.toFixed(kilometers >= 10 ? 0 : 1)} km`;
 }
 
 function parseStopMinutes(stop = {}) {
@@ -144,6 +333,143 @@ function orderStopsByTime(stops = []) {
 function orderStopsMorningFirst(plan) {
   const stops = Array.isArray(plan?.stops) ? [...plan.stops] : [];
   return { ...plan, stops: orderStopsByTime(stops) };
+}
+
+function mealTargetMinutes(stop = {}) {
+  const explicitRole = String(stop.mealRole || "").toLowerCase();
+  const text = `${explicitRole} ${stop.category || ""} ${stop.name || ""} ${stop.description || ""}`.toLowerCase();
+  if (/breakfast/.test(text)) return 8 * 60 + 30;
+  if (/brunch/.test(text)) return 10 * 60 + 30;
+  if (/lunch/.test(text)) return 12 * 60 + 30;
+  if (/coffee|cafe/.test(text)) return 10 * 60;
+  if (/snack|dessert|bakery|tea/.test(text)) return 15 * 60 + 30;
+  if (/dinner|supper/.test(text)) return 19 * 60;
+  if (/drinks|cocktail|wine|bar/.test(text)) return 21 * 60;
+  return null;
+}
+
+function planStopMinutes(stop = {}) {
+  return mealTargetMinutes(stop) ?? stopTimeRank(stop);
+}
+
+function arrangeStopsForPlan(stops = []) {
+  const groups = new Map();
+  [...stops].sort((a, b) => planStopMinutes(a) - planStopMinutes(b)).forEach((stop) => {
+    const timeWindow = Math.floor(planStopMinutes(stop) / 90);
+    if (!groups.has(timeWindow)) groups.set(timeWindow, []);
+    groups.get(timeWindow).push(stop);
+  });
+  return [...groups.entries()].sort(([a], [b]) => a - b).flatMap(([, group]) => {
+    const availabilityFirst = [...group].sort((a, b) => {
+      const rank = (stop) =>
+        (stop.businessStatus === "OPERATIONAL" ? 2 : 0) +
+        (Array.isArray(stop.openingHours) && stop.openingHours.length ? 1 : 0);
+      return rank(b) - rank(a);
+    });
+    return sortByProximity(availabilityFirst);
+  });
+}
+
+function openingSummary(stop, tripDate) {
+  const selectedDate = new Date(`${tripDate || getToday()}T12:00:00`);
+  const day = selectedDate.toLocaleDateString("en-US", { weekday: "long" });
+  const dateLabel = selectedDate.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+  const line = Array.isArray(stop?.openingHours)
+    ? stop.openingHours.find((item) => item.toLowerCase().startsWith(day.toLowerCase()))
+    : null;
+  if (line) {
+    const hours = line.slice(line.indexOf(":") + 1).trim();
+    return `${dateLabel} · ${hours}`;
+  }
+  return stop?.openTimingGuidance ? `${dateLabel} · ${stop.openTimingGuidance}` : null;
+}
+
+function parseClockMinutes(value = "") {
+  const match = String(value).trim().match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)/i);
+  if (!match) return null;
+  let hour = Number(match[1]);
+  const minute = Number(match[2] || 0);
+  const meridiem = match[3].toUpperCase();
+  if (meridiem === "PM" && hour !== 12) hour += 12;
+  if (meridiem === "AM" && hour === 12) hour = 0;
+  return hour * 60 + minute;
+}
+
+function scheduledOpenStatus(stop, tripDate) {
+  const selectedDate = new Date(`${tripDate || getToday()}T12:00:00`);
+  const day = selectedDate.toLocaleDateString("en-US", { weekday: "long" });
+  const line = Array.isArray(stop?.openingHours)
+    ? stop.openingHours.find((item) => item.toLowerCase().startsWith(day.toLowerCase()))
+    : null;
+  if (!line) return { label: stop?.openTimingGuidance || "Confirm hours", warning: "" };
+  const hours = line.slice(line.indexOf(":") + 1).trim();
+  if (/open 24 hours/i.test(hours)) return { label: "Open at your visit time", warning: "" };
+  if (/closed/i.test(hours)) return { label: `Closed ${day}`, warning: `${stop.name} is closed on ${day}. Choose another day or replace this stop.` };
+  const visit = parseStopMinutes(stop);
+  if (visit == null) return { label: hours, warning: "" };
+  const ranges = [...hours.matchAll(/(\d{1,2}(?::\d{2})?\s*(?:AM|PM))\s*[–—-]\s*(\d{1,2}(?::\d{2})?\s*(?:AM|PM))/gi)]
+    .map((match) => ({ start: parseClockMinutes(match[1]), end: parseClockMinutes(match[2]), endLabel: match[2], startLabel: match[1] }))
+    .filter((range) => range.start != null && range.end != null);
+  if (!ranges.length) return { label: hours, warning: "" };
+  const active = ranges.find((range) => visit >= range.start && visit <= range.end);
+  if (active) return { label: `Open until ${active.endLabel}`, warning: "" };
+  const upcoming = ranges.find((range) => visit < range.start);
+  if (upcoming) return { label: `Opens at ${upcoming.startLabel}`, warning: `${stop.name} is scheduled before it opens. Move it later than ${upcoming.startLabel}.` };
+  const last = ranges[ranges.length - 1];
+  return { label: `Closes at ${last.endLabel}`, warning: `${stop.name} closes before its scheduled visit time. Move it earlier than ${last.endLabel}.` };
+}
+
+const moodKeywords = {
+  adventurous: /adventur|adrenaline|ziplin|cliff|paraglid|rafting|bungee|thrill/i,
+  "slow-scenic": /slow|scenic|quiet|view|sunset|golden hour|peaceful|relax/i,
+  cultural: /cultur|museum|history|architecture|gallery|temple|heritage|art/i,
+  culinary: /culinary|restaurant|food|dinner|lunch|breakfast|market|cafe|café|tasting/i,
+  offbeat: /offbeat|hidden|secret|quirky|unusual|underground|obscure/i,
+  social: /social|group|lively|music|rooftop|night market|colleague|friends/i,
+  active: /active|hike|bike|kayak|paddle|walk|sport|movement/i,
+  "night-owl": /night|late|midnight|after dark|bar|jazz|club/i,
+  romantic: /romantic|date|candle|intimate|sunset|golden hour/i,
+};
+
+function stopMoodMatches(stop, selected = []) {
+  const text = `${stop?.category || ""} ${stop?.description || ""} ${stop?.requirementMatch || ""}`;
+  return selected.filter((mood) => moodKeywords[mood.id]?.test(text)).slice(0, 2);
+}
+
+function stopPresentation(stop = {}) {
+  const sentences = String(stop.description || "").match(/[^.!?]+[.!?]?/g)?.map((part) => part.trim()).filter(Boolean) || [];
+  const actionable = /\b(request|ask for|bring|avoid|without|substitut|allerg|gluten|vegan|vegetarian|wheelchair|accessible|budget|under \$|reservation|parking|transit)\b/i;
+  const tips = sentences.filter((sentence) => actionable.test(sentence));
+  const description = concisePlaceDescription(sentences.filter((sentence) => !actionable.test(sentence)).join(" ") || String(stop.description || ""));
+  const requirement = String(stop.requirementMatch || "").trim();
+  const usefulRequirement = /\$|budget|gluten|vegan|vegetarian|wheel|access|request|ask|bring|avoid|near|minute|walk|reservation|crowd|indoor|outdoor|patio|transit|parking/i.test(requirement);
+  const insight = [...new Set([...(usefulRequirement ? [requirement] : []), ...tips])].join(" ");
+  return { description, insight };
+}
+
+function concisePlaceDescription(value = "", maxLength = 240) {
+  const text = String(value).replace(/\s+/g, " ").trim();
+  if (text.length <= maxLength) return text;
+  const sentences = text.match(/[^.!?]+[.!?]+/g)?.map((part) => part.trim()).filter(Boolean) || [];
+  const complete = [];
+  for (const sentence of sentences.slice(0, 2)) {
+    const candidate = [...complete, sentence].join(" ");
+    if (candidate.length > maxLength) break;
+    complete.push(sentence);
+  }
+  if (complete.length) return complete.join(" ");
+  const shortened = text.slice(0, maxLength);
+  const boundary = Math.max(shortened.lastIndexOf(","), shortened.lastIndexOf(";"), shortened.lastIndexOf(":"));
+  if (boundary > 100) return `${shortened.slice(0, boundary).trim()}.`;
+  const wordBoundary = shortened.lastIndexOf(" ");
+  return `${shortened.slice(0, wordBoundary > 100 ? wordBoundary : maxLength).replace(/[,:;\s]+$/, "").trim()}.`;
+}
+
+function specialTimingNote(stop) {
+  const note = stop?.specialHoursMetadata?.note || stop?.specialHoursNote;
+  if (!note) return null;
+  const name = stop?.specialDayName;
+  return name && !note.toLowerCase().includes(String(name).toLowerCase()) ? `${name}: ${note}` : note;
 }
 
 function getToday() { return new Date().toISOString().slice(0, 10); }
@@ -271,18 +597,29 @@ function App() {
   const [user, setUser] = useState(null);
   const [step, setStep] = useState("login");
   const [destination, setDestination] = useState("");
+  const [endDestination, setEndDestination] = useState("");
   const [placePredictions, setPlacePredictions] = useState([]);
   const [isAutocompleting, setIsAutocompleting] = useState(false);
   const [autocompleteError, setAutocompleteError] = useState("");
   const [showDestinationSuggestions, setShowDestinationSuggestions] = useState(false);
+  const [endPlacePredictions, setEndPlacePredictions] = useState([]);
+  const [isEndAutocompleting, setIsEndAutocompleting] = useState(false);
+  const [endAutocompleteError, setEndAutocompleteError] = useState("");
+  const [showEndDestinationSuggestions, setShowEndDestinationSuggestions] = useState(false);
   const [date, setDate] = useState(getToday());
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
   const [diet, setDiet] = useState("Vegetarian");
   const [planFor, setPlanFor] = useState("Date");
-  const [transportMode, setTransportMode] = useState("");
-  const [timeRange, setTimeRange] = useState("");
+  const [transportMode, setTransportMode] = useState("Car");
+  const [requirements, setRequirements] = useState("");
+  const [requirementChips, setRequirementChips] = useState([]);
+  const [requirementsFocus, setRequirementsFocus] = useState(false);
+  const [refinement, setRefinement] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isRefining, setIsRefining] = useState(false);
   const [selectedMoods, setSelectedMoods] = useState([]);
   const [loadingPct, setLoadingPct] = useState(6);
-  const [placesPhotos, setPlacesPhotos] = useState([]);
   const [itinerary, setItinerary] = useState(null);
   const [googleReady, setGoogleReady] = useState(false);
   const [error, setError] = useState("");
@@ -293,7 +630,6 @@ function App() {
   const [shareCopied, setShareCopied] = useState(false);
   const [shareLoading, setShareLoading] = useState(false);
   const [calendarState, setCalendarState] = useState("idle");
-  const [customActivity, setCustomActivity] = useState("");
   const [cardIndex, setCardIndex] = useState(0);
   const [savedCards, setSavedCards] = useState(new Set());
   const [selectedStops, setSelectedStops] = useState([]);
@@ -301,11 +637,11 @@ function App() {
   const [mobileTrayOpen, setMobileTrayOpen] = useState(false);
   const [dragIndex, setDragIndex] = useState(null);
   const [manualStopOrder, setManualStopOrder] = useState(false);
+  const [outdoLoading, setOutdoLoading] = useState(false);
+  const [outdoPlanId, setOutdoPlanId] = useState("");
   const [addedStopName, setAddedStopName] = useState("");
   const [activeTimelineIndex, setActiveTimelineIndex] = useState(0);
   const [swipeDir, setSwipeDir] = useState(1);
-  const [activityFocus, setActivityFocus] = useState(false);
-  const [customActivities, setCustomActivities] = useState([]);
   const [loginSlide, setLoginSlide] = useState(0);
   const [showTapHint, setShowTapHint] = useState(false);
   const [heartBurst, setHeartBurst] = useState(false);
@@ -314,20 +650,176 @@ function App() {
   const swipeStartXRef = useRef(null);
   const timelineRefs = useRef([]);
   const shellRef = useRef(null);
+  const routeRefreshTimerRef = useRef(null);
+  const routeRefreshRequestRef = useRef(0);
+  const motionPathRef = useRef(null);
+  const jumpTimerRef = useRef(null);
+  const crashTimerRef = useRef(null);
+  const lastJumpAtRef = useRef(0);
+  const loadingStartedAtRef = useRef(0);
+  const gameProgressRef = useRef(6);
+  const previousLoadingPctRef = useRef(6);
+  const clearedHurdlesRef = useRef(new Set());
+  const [loaderCursor, setLoaderCursor] = useState({ x: 78, y: 516, angle: -20 });
+  const [dinoJumping, setDinoJumping] = useState(false);
+  const [dinoCrashed, setDinoCrashed] = useState(false);
+  const [dinoScore, setDinoScore] = useState(0);
+  const [gameLap, setGameLap] = useState(1);
+  const [gameUnlock, setGameUnlock] = useState("First route ready — jump to unlock research levels");
+  const [travelScene, setTravelScene] = useState(0);
+  const [travelObstacle, setTravelObstacle] = useState(0);
+  const [travelerStumble, setTravelerStumble] = useState(false);
+  const [obstacleReaction, setObstacleReaction] = useState(false);
+  const [missScore, setMissScore] = useState(0);
+  const [gameMessage, setGameMessage] = useState("Trip mode unlocked");
+  const travelGameStartedAtRef = useRef(0);
+  const gameAudioContextRef = useRef(null);
+  const [isMobileLoader, setIsMobileLoader] = useState(false);
 
   function goTo(s) {
     window.scrollTo({ top: 0, behavior: "instant" });
     setStep(s);
   }
 
+  function triggerDinoJump() {
+    if (step !== "loading") return;
+    try {
+      const AudioEngine = window.AudioContext || window.webkitAudioContext;
+      if (AudioEngine && !gameAudioContextRef.current) gameAudioContextRef.current = new AudioEngine();
+      gameAudioContextRef.current?.resume?.();
+    } catch { }
+    lastJumpAtRef.current = Date.now();
+    setDinoJumping(true);
+    setTravelerStumble(false);
+    clearTimeout(jumpTimerRef.current);
+    jumpTimerRef.current = setTimeout(() => setDinoJumping(false), 620);
+  }
+
+  function playLevelSound() {
+    try {
+      const AudioEngine = window.AudioContext || window.webkitAudioContext;
+      if (!AudioEngine) return;
+      const context = gameAudioContextRef.current || new AudioEngine();
+      gameAudioContextRef.current = context;
+      [523.25, 659.25, 783.99].forEach((frequency, index) => {
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        oscillator.frequency.value = frequency;
+        oscillator.type = "sine";
+        gain.gain.setValueAtTime(0.0001, context.currentTime + index * .08);
+        gain.gain.exponentialRampToValueAtTime(.08, context.currentTime + index * .08 + .02);
+        gain.gain.exponentialRampToValueAtTime(.0001, context.currentTime + index * .08 + .22);
+        oscillator.connect(gain).connect(context.destination);
+        oscillator.start(context.currentTime + index * .08);
+        oscillator.stop(context.currentTime + index * .08 + .24);
+      });
+    } catch { }
+  }
+
+  function finishTravelObstacle(event) {
+    if (event.target !== event.currentTarget) return;
+    const cleared = Date.now() - lastJumpAtRef.current < 820;
+    const mode = travelGameMode(transportMode);
+    const stories = TRAVEL_GAME_STORIES[mode];
+    const story = stories[travelScene];
+    const completedCount = travelObstacle + 1;
+    if (cleared) {
+      setDinoScore((score) => score + 1);
+      setGameMessage(story.win);
+      const unlockNext = completedCount % 4 === 0 && travelScene < stories.length - 1;
+      clearTimeout(crashTimerRef.current);
+      crashTimerRef.current = setTimeout(() => {
+        setTravelObstacle((obstacle) => obstacle + 1);
+        if (unlockNext) {
+          const nextScene = travelScene + 1;
+          setTravelScene(nextScene);
+          setGameMessage(stories[nextScene].intro);
+          playLevelSound();
+        }
+      }, 280);
+    } else {
+      setMissScore((score) => score + 1);
+      setTravelerStumble(true);
+      setGameMessage(`${story.miss} Restarting ${story.label}.`);
+      clearTimeout(crashTimerRef.current);
+      crashTimerRef.current = setTimeout(() => {
+        setTravelerStumble(false);
+        setTravelObstacle(travelScene * 4);
+        setGameMessage(story.intro);
+      }, 720);
+    }
+  }
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 760px)");
+    const sync = () => setIsMobileLoader(media.matches);
+    sync();
+    media.addEventListener?.("change", sync);
+    return () => media.removeEventListener?.("change", sync);
+  }, []);
+
+  useEffect(() => {
+    gameProgressRef.current = loadingPct;
+  }, [loadingPct]);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    const boardId = params.get("board");
+    if (boardId) {
+      try {
+        const saved = JSON.parse(localStorage.getItem(`outdonePlan:${boardId}`) || "null");
+        const sourceItinerary = saved?.sourceItinerary || saved?.itinerary;
+        if (!sourceItinerary?.stops?.length) throw new Error("Cached outing board not found");
+        setItinerary(sourceItinerary);
+        setSelectedStops(saved.sourceSelectedStops || saved.itinerary?.stops || []);
+        setDate(saved.date || getToday());
+        setDestination(saved.destination || sourceItinerary.destination || "");
+        setEndDestination(saved.endDestination || "");
+        setTransportMode(saved.transportMode || "Car");
+        setCardIndex(0);
+        setItineraryBuilt(false);
+        setManualStopOrder(false);
+        setOutdoPlanId("");
+        setStep("result");
+      } catch (error) {
+        console.warn("Could not restore outing board", error);
+        setError("This outing board is no longer available.");
+        setStep("apiError");
+      }
+      return;
+    }
+    const outdoId = params.get("outdo");
+    if (outdoId) {
+      try {
+        const saved = JSON.parse(localStorage.getItem(`outdonePlan:${outdoId}`) || "null");
+        if (!saved?.itinerary?.stops?.length) throw new Error("Cached plan not found");
+        setItinerary(saved.itinerary);
+        setSelectedStops(saved.itinerary.stops);
+        setDate(saved.date || getToday());
+        setDestination(saved.destination || saved.itinerary.destination || "");
+        setEndDestination(saved.endDestination || "");
+        setTransportMode(saved.transportMode || "Car");
+        setOutdoPlanId(outdoId);
+        setItineraryBuilt(true);
+        setManualStopOrder(Boolean(saved.manuallyEditedAt));
+        setStep("result");
+      } catch (error) {
+        console.warn("Could not load AI Outdo plan", error);
+        setError("This cached AI Outdo plan is no longer available. Return to your outing board and run it again.");
+        setStep("apiError");
+      }
+      return;
+    }
     const id = params.get("i");
     if (!id) return;
     fetch(`/api/save-itinerary?id=${encodeURIComponent(id)}`)
       .then(r => r.ok ? r.json() : Promise.reject())
       .then(payload => {
-        if (payload.itinerary) setItinerary(payload.itinerary);
+        if (payload.itinerary) {
+          setItinerary(payload.itinerary);
+          setSelectedStops(payload.itinerary.stops || []);
+          setItineraryBuilt(true);
+        }
         if (payload.destination) setDestination(payload.destination);
         if (payload.date) setDate(payload.date);
         if (payload.selectedMoods) setSelectedMoods(payload.selectedMoods.map(m => m.id || m));
@@ -337,6 +829,27 @@ function App() {
       })
       .catch(() => console.warn("Could not load shared itinerary"));
   }, []);
+
+  useEffect(() => {
+    if (!outdoPlanId || !selectedStops.length || !manualStopOrder) return;
+    const key = `outdonePlan:${outdoPlanId}`;
+    try {
+      const saved = JSON.parse(localStorage.getItem(key) || "null");
+      if (!saved) return;
+      localStorage.setItem(key, JSON.stringify({
+        ...saved,
+        optimization: itinerary?.optimization || saved.optimization,
+        itinerary: {
+          ...saved.itinerary,
+          stops: selectedStops,
+          optimization: itinerary?.optimization || saved.itinerary?.optimization
+        },
+        manuallyEditedAt: new Date().toISOString()
+      }));
+    } catch (error) {
+      console.warn("Could not persist reordered AI Outdo plan", error);
+    }
+  }, [outdoPlanId, selectedStops, manualStopOrder, itinerary?.optimization]);
 
   useEffect(() => {
     document.title = "outdone - Vibe-first travel planning";
@@ -453,7 +966,48 @@ function App() {
     return () => { cancelled = true; clearTimeout(timer); };
   }, [destination]);
 
+  useEffect(() => {
+    const query = endDestination.trim();
+    if (query.length < 2) {
+      const clearTimer = setTimeout(() => {
+        setEndAutocompleteError("");
+        setEndPlacePredictions([]);
+      }, 0);
+      return () => clearTimeout(clearTimer);
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setIsEndAutocompleting(true);
+      setEndAutocompleteError("");
+      try {
+        const response = await fetch(`/api/place-autocomplete?input=${encodeURIComponent(query)}`);
+        const responseText = await response.text();
+        let data = null;
+        try {
+          data = responseText ? JSON.parse(responseText) : {};
+        } catch {
+          throw new Error(`Autocomplete route returned ${response.status}: ${responseText.slice(0, 120) || "No response body"}`);
+        }
+        if (!response.ok) throw new Error(data?.error || `Autocomplete route returned ${response.status}`);
+        if (!cancelled && Array.isArray(data.suggestions)) {
+          setEndPlacePredictions(data.suggestions);
+          setEndAutocompleteError(data.suggestions.length ? "" : data.error || "");
+        }
+      } catch (error) {
+        console.warn("End destination autocomplete fallback:", error);
+        if (!cancelled) {
+          setEndPlacePredictions([]);
+          setEndAutocompleteError(error.message || "Could not load Google suggestions.");
+        }
+      } finally {
+        if (!cancelled) setIsEndAutocompleting(false);
+      }
+    }, 220);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [endDestination]);
+
   const destinationOptions = placePredictions;
+  const endDestinationOptions = endPlacePredictions;
 
   const selectedMoodObjects = selectedMoods.map((id) => moodVibes.find((vibe) => vibe.id === id)).filter(Boolean);
   // Preload all itinerary images so switching cards feels instant on mobile
@@ -470,11 +1024,43 @@ function App() {
     });
     return () => { /* allow garbage collection */ };
   }, [itinerary, selectedMoods]);
+
+  useEffect(() => {
+    if (step !== "loading" || !motionPathRef.current) return;
+    const path = motionPathRef.current;
+    const total = path.getTotalLength();
+    const distance = total * Math.min(100, Math.max(0, loadingPct)) / 100;
+    const point = path.getPointAtLength(distance);
+    const next = path.getPointAtLength(Math.min(total, distance + 2));
+    setLoaderCursor({ x: point.x, y: point.y, angle: Math.atan2(next.y - point.y, next.x - point.x) * 180 / Math.PI });
+  }, [loadingPct, step, isMobileLoader]);
+
+  useEffect(() => {
+    if (step !== "loading") return;
+    const jump = (event) => {
+      if ((event.code !== "Space" && event.key !== " ") || event.repeat) return;
+      event.preventDefault();
+      triggerDinoJump();
+    };
+    window.addEventListener("keydown", jump);
+    return () => {
+      window.removeEventListener("keydown", jump);
+      clearTimeout(jumpTimerRef.current);
+      clearTimeout(crashTimerRef.current);
+    };
+  }, [step]);
   const travelArchetype = getTravelArchetype(selectedMoodObjects);
-  const googleTravelMode = transportMode === "Car" ? "driving" : transportMode === "Public transit" ? "transit" : "walking";
+  const googleTravelMode = transportMode === "Walking" ? "walking" : transportMode === "Public transit" ? "transit" : "driving";
   const suggestionStops = itinerary?.stops || [];
-  const activeStop = suggestionStops[Math.min(cardIndex, Math.max(suggestionStops.length - 1, 0))] || {};
-  const itineraryStops = orderStopsByTime(selectedStops.length ? selectedStops : suggestionStops);
+  const activeStop = cardIndex < suggestionStops.length ? suggestionStops[cardIndex] : {};
+  const refinementPreviewStop = suggestionStops[0] || {};
+  const activeMoodMatches = stopMoodMatches(activeStop, selectedMoodObjects);
+  const activePresentation = stopPresentation(activeStop);
+  const activeReviews = activeStop.reviewHighlights || activeStop.reviewEvidence || [];
+  const activeDiscoveryLinks = discoveryLinksForStop(activeStop, destination);
+  const itineraryStops = selectedStops.length
+    ? (itineraryBuilt ? selectedStops : orderStopsByTime(selectedStops))
+    : orderStopsByTime(suggestionStops);
   const mapsStops = itineraryStops;
   const tripMapsUrl = mapsStops.length ? buildGoogleMapsTripUrl(mapsStops, googleTravelMode) : "";
 
@@ -486,27 +1072,78 @@ function App() {
     setAddedStopName(stop.name);
     setTimeout(() => {
       setAddedStopName("");
-      setCardIndex((i) => Math.min(i + 1, Math.max(suggestionStops.length - 1, 0)));
+      setCardIndex((i) => Math.min(i + 1, suggestionStops.length));
     }, 520);
   }
 
   function discardCurrentStop() {
-    setCardIndex((i) => Math.min(i + 1, Math.max(suggestionStops.length - 1, 0)));
+    setCardIndex((i) => Math.min(i + 1, suggestionStops.length));
   }
 
   function removeSelectedStop(index) {
     setSelectedStops((items) => items.filter((_, i) => i !== index));
   }
 
+  function scheduleConsecutiveLegRefresh(stops) {
+    if (!outdoPlanId || stops.length < 2) return;
+    clearTimeout(routeRefreshTimerRef.current);
+    const requestId = ++routeRefreshRequestRef.current;
+    routeRefreshTimerRef.current = setTimeout(async () => {
+      try {
+        const response = await fetch("/api/optimize-route", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            stops,
+            date,
+            transportMode: transportMode || "Car",
+            preserveOrder: true
+          })
+        });
+        const data = await response.json();
+        if (!response.ok || !data.orderedStops?.length) throw new Error(data.error || "Could not refresh route legs.");
+        if (requestId !== routeRefreshRequestRef.current) return;
+        setSelectedStops(data.orderedStops);
+        setItinerary((current) => current ? {
+          ...current,
+          stops: data.orderedStops,
+          optimization: data.optimization
+        } : current);
+      } catch (error) {
+        console.warn("Could not refresh consecutive route legs", error);
+      }
+    }, 350);
+  }
+
   function moveSelectedStop(from, to) {
     if (from == null || to == null || from === to) return;
     setManualStopOrder(true);
     setSelectedStops((items) => {
+      const scheduleSlots = items.map((stop) => ({ time: stop.time, period: stop.period }));
       const next = [...items];
       const [moved] = next.splice(from, 1);
       next.splice(to, 0, moved);
-      return next;
+      const pending = next.map((stop, index) => ({
+        ...stop,
+        time: scheduleSlots[index]?.time || stop.time,
+        period: scheduleSlots[index]?.period || stop.period,
+        routeFromPrevious: index === 0 ? "" : "Updating route from previous stop…"
+      }));
+      scheduleConsecutiveLegRefresh(pending);
+      return pending;
     });
+  }
+
+  function returnToSuggestions() {
+    let source = null;
+    try {
+      source = outdoPlanId ? JSON.parse(localStorage.getItem(`outdonePlan:${outdoPlanId}`) || "null")?.sourceItinerary : null;
+    } catch { }
+    if (source?.stops?.length) setItinerary(source);
+    setItineraryBuilt(false);
+    setOutdoPlanId("");
+    setCardIndex(0);
+    window.scrollTo({ top: 0, behavior: "instant" });
   }
 
   function beginMobileSort(index, event) {
@@ -532,9 +1169,72 @@ function App() {
 
   function createItineraryFromSelected() {
     if (!selectedStops.length) return;
-    if (!manualStopOrder) setSelectedStops((items) => orderStopsByTime(items));
+    if (!manualStopOrder) setSelectedStops((items) => arrangeStopsForPlan(items));
     setItineraryBuilt(true);
     setMobileTrayOpen(false);
+  }
+
+  async function runAiOutdo() {
+    if (!selectedStops.length || outdoLoading) return;
+    const fingerprint = stablePlanFingerprint(selectedStops, date, transportMode);
+    const cachedPlanId = localStorage.getItem(`outdoneRouteCache:${fingerprint}`);
+
+    if (cachedPlanId && localStorage.getItem(`outdonePlan:${cachedPlanId}`)) {
+      try {
+        const cached = JSON.parse(localStorage.getItem(`outdonePlan:${cachedPlanId}`));
+        setSelectedStops(cached.itinerary.stops || selectedStops);
+        setItinerary(cached.itinerary);
+        setOutdoPlanId(cachedPlanId);
+        setItineraryBuilt(true);
+        setMobileTrayOpen(false);
+        return;
+      } catch {
+        localStorage.removeItem(`outdoneRouteCache:${fingerprint}`);
+      }
+    }
+    setOutdoLoading(true);
+    setError("");
+
+    try {
+      const response = await fetch("/api/optimize-route", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stops: selectedStops, date, transportMode: transportMode || "Car", unitSystem: usesImperialDistance(destination) ? "imperial" : "metric" })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.orderedStops?.length) throw new Error(data.error || "AI Outdo could not optimize this route.");
+
+      const planId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${fingerprint}`;
+      const record = {
+        id: planId,
+        fingerprint,
+        date,
+        destination,
+        endDestination,
+        transportMode: transportMode || "Car",
+        optimization: data.optimization,
+        createdAt: new Date().toISOString(),
+        sourceItinerary: itinerary,
+        sourceSelectedStops: selectedStops,
+        itinerary: {
+          ...itinerary,
+          stops: data.orderedStops,
+          optimization: data.optimization,
+          generatedBy: "ai-outdo"
+        }
+      };
+      localStorage.setItem(`outdonePlan:${planId}`, JSON.stringify(record));
+      localStorage.setItem(`outdoneRouteCache:${fingerprint}`, planId);
+      setSelectedStops(data.orderedStops);
+      setItinerary(record.itinerary);
+      setOutdoPlanId(planId);
+      setItineraryBuilt(true);
+      setMobileTrayOpen(false);
+    } catch (error) {
+      setError(error.message || "AI Outdo could not optimize this route.");
+    } finally {
+      setOutdoLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -579,10 +1279,10 @@ function App() {
   ], [destination, diet, planFor, selectedMoodObjects, user]);
   const displayLoadingPct = Math.round(loadingPct);
   const activeLoadingPhase =
-    loadingPct >= 90 ? 4 :
-    loadingPct >= 70 ? 3 :
-    loadingPct >= 48 ? 2 :
-    loadingPct >= 26 ? 1 :
+    loadingPct >= 100 ? 4 :
+    loadingPct >= 78 ? 3 :
+    loadingPct >= 55 ? 2 :
+    loadingPct >= 30 ? 1 :
     0;
 
   function toggleMood(id) {
@@ -593,12 +1293,35 @@ function App() {
     });
   }
 
-  async function generatePlan() {
+  function commitRequirement(value) {
+    const next = String(value || "").trim();
+    if (!next) return;
+    setRequirementChips((items) => items.some((item) => item.toLowerCase() === next.toLowerCase()) ? items : [...items, next]);
+    setRequirements("");
+  }
+
+  async function generatePlan(extraRequirement = "") {
+    if (isGenerating) return;
+    setIsGenerating(true);
     goTo("loading");
     setError("");
     setLoadingPct(6);
+    loadingStartedAtRef.current = Date.now();
+    previousLoadingPctRef.current = 6;
+    clearedHurdlesRef.current = new Set();
+    lastJumpAtRef.current = 0;
+    setDinoScore(0);
+    setDinoCrashed(false);
+    setGameLap(1);
+    setGameUnlock("First route ready — jump to unlock research levels");
+    travelGameStartedAtRef.current = Date.now();
+    setTravelScene(0);
+    setTravelObstacle(0);
+    setTravelerStumble(false);
+    setObstacleReaction(false);
+    setMissScore(0);
+    setGameMessage(TRAVEL_GAME_STORIES[travelGameMode(transportMode)][0].intro);
     setItinerary(null);
-    setPlacesPhotos([]);
     setCardIndex(0);
     setSavedCards(new Set());
     setSelectedStops([]);
@@ -608,55 +1331,91 @@ function App() {
 
     const interval = setInterval(() => {
       setLoadingPct((pct) => {
-        if (pct >= 90) return 90;
-        if (pct < 26) return Math.min(26, pct + 3.2);
-        if (pct < 48) return Math.min(48, pct + 2.3);
-        if (pct < 70) return Math.min(70, pct + 1.6);
-        return Math.min(90, pct + 0.95);
+        const elapsed = (Date.now() - loadingStartedAtRef.current) / 1000;
+        const speed = elapsed < 15 ? 1.8 : elapsed < 40 ? 1.2 : .8;
+        return Math.min(94, pct + speed);
       });
-    }, 900);
-
-    const fetchPlaces = async () => {
-      try {
-        const res = await fetch(`/api/place-autocomplete?input=${encodeURIComponent(destination)}`);
-        const data = await res.json();
-        const photos = await Promise.all(
-          [destination, ...selectedMoodObjects.map(m => `${destination} ${m.title}`)].slice(0, 8).map(async (q) => {
-            try {
-              const r = await fetch(`/api/place-autocomplete?input=${encodeURIComponent(q)}`);
-              const d = await r.json();
-              const first = (d.suggestions || [])[0];
-              return first ? { name: first.label || first, placeId: first.placeId } : null;
-            } catch { return null; }
-          })
-        );
-        setPlacesPhotos(photos.filter(Boolean));
-      } catch (e) { }
-    };
+    }, 420);
 
     const geminiPromise = fetch("/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user, destination, dates: prettyDate(date), date, diet, travelWith: planFor, transportMode, timeRange, recommendationCount: 12, numStops: 12, minStops: 12, maxStops: 12, requiredFoodStops: 5, selectedMoods: selectedMoodObjects, customActivity: [...customActivities, customActivity.trim()].filter(Boolean).join("; ") || null, instruction: "Create a pool of exactly 12 real, specific suggestions that the user can add to their own itinerary. The returned stops array must contain exactly 12 concrete places, no fewer and no more. Do not use placeholder or generic names like Breakfast pick, Lunch spot, Dinner pick, Scenic detour, or activity in destination. Every stop name must be the actual name of a real venue, restaurant, attraction, neighborhood, park, market, tour, or activity provider. Start the suggestions with morning-first options, then midday, afternoon, evening, and night. Include at least 5 food or drink places across breakfast, lunch, dinner, coffee, snacks, dessert, or drinks when timing and opening hours make sense. Include the remaining 7 suggestions as activities, sights, nature, culture, shopping, nightlife, or experiences that match the selected vibe. Each item should still be a stop object with name, category, time, period, description, routeFromPrevious, address when known, and open/timing guidance. For food, say whether it is best for breakfast, lunch, dinner, snack, coffee, dessert, or drinks, and respect dietary preference strictly. For each stop that is bookable (tours, tickets, activities like ziplining, theme parks, cabins, classes), include a bookingUrl field pointing to the official booking or ticketing page. For restaurants and paid venues, include priceLevel (1-4) when known. Infer longer-term travel style lightly from Google profile if available, but do not ask the user to select it. Use selectedMoods as today's short-term intent - the signal field for each vibe is the critical instruction that defines what kinds of activities to include or exclude. If customActivity is provided, treat it as a must-include experience and build at least one suggestion around it. GEOGRAPHIC SCOPE: match the scope of the destination exactly as the user typed it. If the destination is a broad region, state, or country (for example 'Tamil Nadu', 'Tuscany', 'Portugal'), spread the suggestions across the ENTIRE region. Only keep suggestions close together and walkable when the destination is a specific city or neighborhood. The server will enrich stops with Google Places photos, ratings, addresses, and map links." })
+      body: JSON.stringify({
+        user,
+        destination,
+        endDestination: endDestination.trim() || null,
+        dates: prettyDate(date),
+        date,
+        startTime: startTime || null,
+        endTime: endTime || null,
+        diet,
+        travelWith: planFor,
+        transportMode: transportMode || "Car",
+        selectedMoods: selectedMoodObjects,
+        requirements: joinRequirements(requirementChips, [requirements, extraRequirement].filter(Boolean).join("; "))
+      })
     });
-
-    fetchPlaces();
 
     try {
       const res = await geminiPromise;
       const data = await res.json();
       if (!res.ok || data?.error) throw new Error(data?.error || "The planning service is unavailable right now.");
-      const completePlan = orderStopsMorningFirst(data);
+      const completePlan = data;
       clearInterval(interval);
-      setLoadingPct((pct) => Math.max(pct, 90));
       setItinerary(completePlan);
-      setTimeout(() => setLoadingPct(100), 850);
-      setTimeout(() => goTo("result"), 2200);
+      setDinoCrashed(false);
+      setGameUnlock("Final level unlocked · your suggestions are ready");
+      setLoadingPct(100);
+      setDinoJumping(true);
+      setTimeout(() => goTo("result"), 720);
     } catch (err) {
       clearInterval(interval);
       console.error(err);
       setError(err.message || "We could not generate the plan.");
       goTo("apiError");
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
+  async function generateMoreSuggestions(event) {
+    event.preventDefault();
+    if (!refinement.trim() || isRefining) return;
+    setIsRefining(true);
+    setError("");
+    try {
+      const response = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user,
+          destination,
+          endDestination: endDestination.trim() || null,
+          dates: prettyDate(date),
+          date,
+          startTime: startTime || null,
+          endTime: endTime || null,
+          diet,
+          travelWith: planFor,
+          transportMode: transportMode || "Car",
+          selectedMoods: selectedMoodObjects,
+          requirements: joinRequirements(requirementChips, [requirements, refinement].filter(Boolean).join("; "))
+        })
+      });
+      const data = await response.json();
+      if (!response.ok || data?.error) throw new Error(data?.error || "Could not refresh suggestions.");
+      setItinerary((current) => {
+        const existing = current?.stops || [];
+        const seen = new Set(existing.map((stop) => stop.placeId || String(stop.name).toLowerCase()));
+        const fresh = (data.stops || []).filter((stop) => !seen.has(stop.placeId || String(stop.name).toLowerCase()));
+        return { ...data, stops: [...fresh, ...existing] };
+      });
+      setCardIndex(0);
+      setRefinement("");
+    } catch (refreshError) {
+      setError(refreshError.message || "Could not refresh suggestions.");
+    } finally {
+      setIsRefining(false);
     }
   }
 
@@ -667,7 +1426,7 @@ function App() {
       const res = await fetch("/api/save-itinerary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itinerary, destination, date, selectedMoods: selectedMoodObjects, diet, planFor }),
+        body: JSON.stringify({ itinerary: { ...itinerary, stops: itineraryStops }, destination, date, selectedMoods: selectedMoodObjects, diet, planFor }),
       });
       const { id, error } = await res.json();
       if (!id) throw new Error(error || "No ID returned");
@@ -684,9 +1443,9 @@ function App() {
   }
 
   function startOver() {
-    setDestination(""); setDate(getToday()); setDiet("No preference"); setPlanFor("Date");
-    setTransportMode(""); setTimeRange(""); setSelectedMoods([]); setCustomActivity("");
-    setCustomActivities([]); setItinerary(null); setCardIndex(0); setSavedCards(new Set());
+    setDestination(""); setEndDestination(""); setRequirements(""); setRequirementChips([]); setRefinement(""); setDate(getToday()); setStartTime(""); setEndTime(""); setDiet("No preference"); setPlanFor("Date");
+    setTransportMode("Car"); setSelectedMoods([]); setRequirements(""); setEndDestination("");
+    setItinerary(null); setCardIndex(0); setSavedCards(new Set());
     setSelectedStops([]); setItineraryBuilt(false); setMobileTrayOpen(false); setManualStopOrder(false);
     goTo("setup");
   }
@@ -745,8 +1504,8 @@ function App() {
               if (tokenResponse.error) return reject(new Error(tokenResponse.error));
               try {
                 const accessToken = tokenResponse.access_token;
-                const stopsText = itinerary.stops.map((s, i) =>
-                  `${String(i + 1).padStart(2, "0")}. ${s.time || ""} ${s.name}${s.address ? ` — ${s.address}` : ""}`
+                const stopsText = itineraryStops.map((s, i) =>
+                  `${String(i + 1).padStart(2, "0")}. ${s.name}${s.address ? ` — ${s.address}` : ""}`
                 ).join("\n");
 
                 const event = {
@@ -786,8 +1545,8 @@ function App() {
     }
 
     const fmt = (d) => d.replace(/-/g, "");
-    const stopsText = itinerary.stops.map((s, i) =>
-      `${String(i + 1).padStart(2, "0")}. ${s.time || ""} ${s.name}${s.address ? " — " + s.address : ""}`
+    const stopsText = itineraryStops.map((s, i) =>
+      `${String(i + 1).padStart(2, "0")}. ${s.name}${s.address ? " — " + s.address : ""}`
     ).join("\\n");
 
     const ics = [
@@ -958,9 +1717,8 @@ function App() {
                 {moodVibes[loginSlide].title}
               </span>
               <div className="lp-panel-itin" key={`itin-${loginSlide}`}>
-                {(loginItins[moodVibes[loginSlide].id] || loginItins.cultural).map(([time, label], i) => (
+                {(loginItins[moodVibes[loginSlide].id] || loginItins.cultural).map(([, label], i) => (
                   <div key={label} className={`lp-itin-line lp-itin-drop`} style={{ animationDelay: `${.25 + i * .16}s` }}>
-                    <span className="lp-itin-time">{time}</span>
                     <span className="lp-itin-label">{label}</span>
                   </div>
                 ))}
@@ -1012,7 +1770,7 @@ function App() {
 
           <div className="setup-stack">
             <div className="setup-card">
-              <span className="setup-card-label">WHERE</span>
+              <span className="setup-card-label">DESTINATION</span>
               <input
                 value={destination}
                 onChange={(e) => {
@@ -1023,7 +1781,7 @@ function App() {
                   setShowDestinationSuggestions(true);
                 }}
                 onBlur={() => setTimeout(() => setShowDestinationSuggestions(false), 140)}
-                placeholder={showDestinationSuggestions ? "" : "City, neighborhood or even country"}
+                placeholder={showDestinationSuggestions ? "" : "City, neighborhood, country"}
                 autoComplete="off"
                 className="setup-card-input"
               />
@@ -1045,14 +1803,53 @@ function App() {
                   {!isAutocompleting && destinationOptions.length === 0 && !autocompleteError && <div className="autocomplete-loading">No suggestions yet. Keep typing or press Next.</div>}
                 </div>
               )}
+              <div className="setup-card-divider" />
+              <span className="setup-card-label">END <span className="setup-card-optional">— optional</span></span>
+              <input
+                type="text"
+                value={endDestination}
+                onChange={(e) => {
+                  setEndDestination(e.target.value);
+                  setShowEndDestinationSuggestions(true);
+                }}
+                onFocus={() => setShowEndDestinationSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowEndDestinationSuggestions(false), 140)}
+                placeholder={showEndDestinationSuggestions ? "" : "Back home or Hotel"}
+                className="setup-card-input"
+                autoComplete="off"
+              />
+              {showEndDestinationSuggestions && endDestination.trim().length >= 2 && !endDestinationOptions.find((option) => option.label === endDestination) && (
+                <div className="setup-suggestions end-destination-suggestions">
+                  {endDestinationOptions.map((item) => (
+                    <button
+                      type="button"
+                      key={item.placeId || item.label}
+                      className="setup-sug"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        setEndDestination(item.label);
+                        setEndPlacePredictions([]);
+                        setShowEndDestinationSuggestions(false);
+                      }}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                  {isEndAutocompleting && endDestinationOptions.length === 0 && <div className="autocomplete-loading">Searching...</div>}
+                  {!isEndAutocompleting && endDestinationOptions.length === 0 && endAutocompleteError && <div className="autocomplete-loading">{endAutocompleteError}</div>}
+                  {!isEndAutocompleting && endDestinationOptions.length === 0 && !endAutocompleteError && <div className="autocomplete-loading">No suggestions yet. Keep typing or leave this blank.</div>}
+                </div>
+              )}
             </div>
 
             <div className="setup-card">
               <span className="setup-card-label">WHEN</span>
               <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="setup-card-input" />
               <div className="setup-card-divider" />
-              <span className="setup-card-label">START TIME <span className="setup-card-optional">— optional</span></span>
-              <input type="time" value={timeRange} onChange={(e) => setTimeRange(e.target.value)} className="setup-card-input" />
+              <label className="setup-end-time">
+                <span className="setup-card-label">END TIME <span className="setup-card-optional">— optional</span></span>
+                <input type="time" value={endTime} onChange={(event) => setEndTime(event.target.value)} className="setup-card-input" />
+              </label>
             </div>
 
             <div className="setup-card">
@@ -1097,7 +1894,7 @@ function App() {
               </div>
             )}
 
-            <button className="btn-accent" disabled={!destination.trim()} onClick={() => goTo("mood")}>Next, your vibe →</button>
+            <button className="btn-accent hover-arrow hover-arrow-forward" disabled={!destination.trim()} onClick={() => goTo("mood")}>Next, your vibe</button>
           </div>
         </main>
       )}
@@ -1133,77 +1930,77 @@ function App() {
             ))}
           </section>
 
-          <div className="custom-activity-wrap">
+          <div className="custom-activity-wrap requirements-wrap">
             <div className="action-search">
-              <span className="action-search-label">WANT SOMETHING SPECIFIC?</span>
-              <div className={`action-search-bar${activityFocus ? " action-search-open" : ""}${customActivities.length ? " action-search-has-chips" : ""}`}>
-                <svg className="action-search-icon" width="16" height="16" viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="6.5" stroke="currentColor" strokeWidth="1.6" /><path d="M14 14l3.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+              <label className="action-search-label" htmlFor="requirements">ANY SPECIFIC REQUIREMENTS? <em>— optional but powerful</em></label>
+              <div className={`action-search-bar${requirementsFocus ? " action-search-open" : ""}`}>
+                <svg className="action-search-icon" width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="6.5" stroke="currentColor" strokeWidth="1.6" /><path d="M14 14l3.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
                 <div className="action-search-field">
-                  {customActivities.map((a) => (
-                    <span key={a} className="activity-chip">
-                      {a}
-                      <button
-                        type="button"
-                        className="activity-chip-x"
-                        onMouseDown={(e) => { e.preventDefault(); setCustomActivities(list => list.filter(x => x !== a)); }}
-                        aria-label={`Remove ${a}`}
-                      >×</button>
+                  {requirementChips.map((requirement) => (
+                    <span key={requirement} className="activity-chip">
+                      {requirement}
+                      <button type="button" className="activity-chip-x" onMouseDown={(event) => { event.preventDefault(); setRequirementChips((items) => items.filter((item) => item !== requirement)); }} aria-label={`Remove ${requirement}`}>×</button>
                     </span>
                   ))}
                   <input
-                    id="customActivity"
+                    id="requirements"
                     type="text"
-                    value={customActivity}
-                    onChange={e => setCustomActivity(e.target.value)}
-                    onFocus={() => setActivityFocus(true)}
-                    onBlur={() => setTimeout(() => setActivityFocus(false), 150)}
-                    onKeyDown={e => {
-                      if (e.key === "Enter" && customActivity.trim()) {
-                        e.preventDefault();
-                        const v = customActivity.trim();
-                        setCustomActivities(list => list.includes(v) ? list : [...list, v]);
-                        setCustomActivity("");
+                    value={requirements}
+                    onChange={(event) => setRequirements(event.target.value)}
+                    onFocus={() => setRequirementsFocus(true)}
+                    onBlur={() => setTimeout(() => setRequirementsFocus(false), 150)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && requirements.trim()) {
+                        event.preventDefault();
+                        commitRequirement(requirements);
                       }
-                      if (e.key === "Backspace" && !customActivity && customActivities.length) {
-                        setCustomActivities(list => list.slice(0, -1));
+                      if (event.key === "Backspace" && !requirements && requirementChips.length) {
+                        setRequirementChips((items) => items.slice(0, -1));
                       }
                     }}
-                    placeholder={customActivities.length ? "Add another…" : "Search activities — ziplining, cooking class, rooftop sunset…"}
-                    maxLength={200}
+                    placeholder={requirementChips.length ? "Add another…" : "Type anything like 'restaurants within $10–$20' and hit enter or select suggestions…"}
+                    maxLength={240}
                     autoComplete="off"
                   />
                 </div>
-                {(customActivity || customActivities.length > 0) && (
-                  <button className="action-search-clear" onMouseDown={(e) => { e.preventDefault(); setCustomActivity(""); setCustomActivities([]); }} aria-label="Clear all">×</button>
-                )}
+                {(requirements || requirementChips.length > 0) && <button className="action-search-clear" type="button" onMouseDown={(event) => { event.preventDefault(); setRequirements(""); setRequirementChips([]); }} aria-label="Clear requirements">×</button>}
               </div>
 
-              {activityFocus && (() => {
-                const pool = (selectedMoods.length ? selectedMoods : ["romantic", "adventurous", "culinary"])
-                  .flatMap(id => (moodActivitySuggestions[id] || []).map(a => ({ activity: a, mood: moodVibes.find(v => v.id === id)?.title || "" })));
-                const q = customActivity.trim().toLowerCase();
-                const filtered = pool.filter(p => !q || p.activity.toLowerCase().includes(q)).slice(0, 8);
+              {requirementsFocus && (() => {
+                const moodPhrases = (selectedMoods.length ? selectedMoods : ["romantic", "adventurous", "culinary"])
+                  .flatMap((id) => (moodActivitySuggestions[id] || []).map((activity) => ({ activity, mood: moodVibes.find((vibe) => vibe.id === id)?.title || "Idea" })));
+                const query = requirements.trim().toLowerCase();
+                const contextualPhrases = contextualRequirementSuggestions({ query, destination, planFor, diet, transportMode })
+                  .map((activity) => ({ activity, mood: "For your setup", contextual: true }));
+                const pool = [
+                  ...contextualPhrases,
+                  ...universalRequirementSuggestions.map((activity) => ({ activity, mood: "Requirement" })),
+                  ...moodPhrases,
+                ];
+                const filtered = pool.filter((item, index) => pool.findIndex((candidate) => candidate.activity === item.activity) === index)
+                  .filter((item) => item.contextual || !query || item.activity.toLowerCase().includes(query))
+                  .slice(0, 8);
                 if (!filtered.length) return null;
                 return (
                   <div className="action-search-panel">
-                    <p className="action-search-panel-label">{selectedMoods.length ? "Based on your vibe" : "Popular right now"}</p>
-                    {filtered.map((p, i) => {
-                      const picked = customActivities.includes(p.activity);
+                    <p className="action-search-panel-label">{query ? "Suggestions for your setup" : "To get you started"}</p>
+                    {filtered.map((item, index) => {
+                      const picked = requirementChips.includes(item.activity);
                       return (
                         <button
-                          key={p.activity + i}
+                          key={item.activity}
                           type="button"
                           className={`action-search-item${picked ? " asi-picked" : ""}`}
-                          style={{ animationDelay: `${i * 35}ms` }}
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            setCustomActivities(list => picked ? list.filter(x => x !== p.activity) : [...list, p.activity]);
-                            setCustomActivity("");
+                          style={{ animationDelay: `${index * 35}ms` }}
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            setRequirementChips((items) => picked ? items.filter((entry) => entry !== item.activity) : [...items, item.activity]);
+                            setRequirements("");
                           }}
                         >
                           <span className="asi-spark">{picked ? "✓" : "✦"}</span>
-                          <span className="asi-name">{p.activity}</span>
-                          <span className="asi-mood">{p.mood}</span>
+                          <span className="asi-name">{item.activity}</span>
+                          <span className="asi-mood">{item.mood}</span>
                         </button>
                       );
                     })}
@@ -1214,99 +2011,34 @@ function App() {
           </div>
 
           <section className="build-cta-row">
-            <button className="btn-accent" onClick={generatePlan}>Generate the plan</button>
+            <button className="btn-accent" onClick={() => generatePlan()} disabled={isGenerating}>
+              {isGenerating && <span className="button-spinner" aria-hidden="true" />} {isGenerating ? "Generating…" : "Generate the plan"}
+            </button>
           </section>
         </main>
       )}
 
       {step === "loading" && (
         <main className="loading-screen on">
-          <svg className="motion-loader-svg" viewBox="0 0 1200 680" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-            <path className="motion-path-shadow" d="M78 516 C190 385 260 588 374 412 C475 258 554 356 626 238 C724 78 830 190 878 322 C922 444 1014 428 1122 218" />
-            <path className="motion-path-base" d="M78 516 C190 385 260 588 374 412 C475 258 554 356 626 238 C724 78 830 190 878 322 C922 444 1014 428 1122 218" />
-            <path className="motion-path-draw" d="M78 516 C190 385 260 588 374 412 C475 258 554 356 626 238 C724 78 830 190 878 322 C922 444 1014 428 1122 218" />
-            {[
-              [78, 516],
-              [374, 412],
-              [626, 238],
-              [878, 322],
-              [1122, 218],
-            ].map(([x, y], i) => (
-              <g className={"motion-node" + (i <= activeLoadingPhase ? " motion-node-on" : "")} key={String(x) + "-" + String(y)}>
-                <circle cx={x} cy={y} r="7" />
-                <circle cx={x} cy={y} r="17" />
-              </g>
-            ))}
-            <g className="motion-svg-pointer">
-              <animateMotion
-                dur="28s"
-                repeatCount="1"
-                fill="freeze"
-                rotate="auto"
-                calcMode="linear"
-                keyPoints="0;0;.26;.26;.48;.48;.68;.68;.86;.86;1"
-                keyTimes="0;.10;.20;.28;.40;.48;.60;.68;.80;.88;1"
-                path="M78 516 C190 385 260 588 374 412 C475 258 554 356 626 238 C724 78 830 190 878 322 C922 444 1014 428 1122 218"
-              />
-              <path d="M18 0l-30 12 6-12-6-12L18 0z" />
-            </g>
-          </svg>
+          {(() => {
+            const messages = ["Finding places that match your mood", "Checking hours and distance", "Putting your day in the right order"];
+            const messageIndex = Math.min(messages.length - 1, travelScene);
+            const destinationLabel = destination.split(",")[0].trim() || "your destination";
+            return (
+              <>
+                <header className="traveler-loader-title">
+                  <p>{destination || "Your trip"}</p>
+                  <h2>Building your itinerary</h2>
+                  <div className="traveler-message-stack" aria-live="polite">
+                    {messages.map((message, index) => <span className={index === messageIndex ? "active" : index < messageIndex ? "done" : ""} key={message}>{index < messageIndex ? "✓" : "✦"} {message}</span>)}
+                  </div>
+                </header>
 
-          <div className="motion-loader-title">
-            <p>{destination || "Your trip"}</p>
-            <h2>Building your itinerary</h2>
-          </div>
+                <FlightGame destination={destination} destinationLabel={destinationLabel} progressText={messages[messageIndex]} />
+              </>
+            );
+          })()}
 
-          <div className="motion-callouts">
-            {loadingPhases.map((phase, i) => (
-              <section key={phase.id} className={"motion-callout motion-callout-" + i + (i === activeLoadingPhase ? " motion-callout-active" : "") + (i < activeLoadingPhase ? " motion-callout-done" : "")}>
-                <div className="motion-visual">
-                  {phase.id === "profile" && (
-                    <div className="motion-profile">
-                      <div className="motion-profile-ring" />
-                      {user?.picture
-                        ? <img src={user.picture} alt="" />
-                        : <svg viewBox="0 0 42 42" width="42" height="42" fill="none"><circle cx="21" cy="16" r="8" fill="currentColor" opacity=".35" /><path d="M7 37c0-8 6.2-13 14-13s14 5 14 13" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" opacity=".35" /></svg>}
-                    </div>
-                  )}
-                  {phase.id === "vibe" && (
-                    <div className="motion-vibes">
-                      {selectedMoodObjects.slice(0, 3).map((mood) => <span key={mood.id}>{mood.title}</span>)}
-                    </div>
-                  )}
-                  {phase.id === "places" && (
-                    <div className="motion-reviews">
-                      {[4.8, 4.6, 4.5].map((rating, idx) => <span key={idx}>★ {rating}</span>)}
-                    </div>
-                  )}
-                  {phase.id === "photos" && (
-                    <div className="motion-photo-stack">
-                      {selectedMoodObjects.slice(0, 3).map((mood, idx) => <img key={mood.id} src={mood.img} alt="" style={{ "--i": idx }} />)}
-                    </div>
-                  )}
-                  {phase.id === "gemini" && (
-                    <div className="motion-gemini">
-                      <span>✦</span>
-                      <i />
-                      <i />
-                      <i />
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <p>{phase.title}{i < activeLoadingPhase ? " - done" : ""}</p>
-                  <span>{phase.line}</span>
-                </div>
-              </section>
-            ))}
-          </div>
-
-          <div className="motion-loader-bottom">
-            <div className="loader-bar-track">
-              <div className="loader-bar-fill" style={{ width: String(displayLoadingPct) + "%" }} />
-            </div>
-            <p className="loader-pct">{displayLoadingPct}%</p>
-          </div>
         </main>
       )}
 
@@ -1314,23 +2046,24 @@ function App() {
         <main className="screen loading-screen on">
           <div className="api-error-card">
             <p className="label">outdone preview</p>
-            <h2>Live planning is taking a short pause.</h2>
-            <p>The prototype could not finish a fresh plan right now. Review your setup or try again in a moment.</p>
+            <h2>The planning backend seems to be down.</h2>
+            <p>Please try again later.</p>
             <div className="error-actions">
               <button className="btn-outline" onClick={() => goTo("setup")}>Edit setup</button>
-              <button className="btn-accent" onClick={generatePlan}>Try again ✦</button>
+              <button className="btn-accent" onClick={() => generatePlan()}>Try again ✦</button>
             </div>
           </div>
         </main>
       )}
 
       {step === "result" && (
-        <main className={`rec-screen builder-screen on${itineraryBuilt ? " itinerary-built" : ""}`}>
+        <main className={`rec-screen builder-screen on${itineraryBuilt ? " itinerary-built" : ""}${!itineraryBuilt && !activeStop.name ? " suggestion-refine-active" : ""}`}>
           <div className="builder-layout">
             <section className="builder-photo-pane">
-              <img key={cardIndex} className="builder-photo-img" src={stopImage(activeStop, cardIndex)} alt="" />
+              <img key={cardIndex} className="builder-photo-img" src={stopImage(activeStop.name ? activeStop : refinementPreviewStop, cardIndex)} alt="" />
               <div className="builder-photo-ov" />
               <div className="builder-photo-meta">
+                {itineraryBuilt && <button className="hero-back-button hover-arrow hover-arrow-back" type="button" onClick={returnToSuggestions}>Back to suggestions</button>}
                 <p>{itinerary?.dates || prettyDate(date)}</p>
                 <h2>{itinerary?.destination || destination}</h2>
               </div>
@@ -1341,6 +2074,7 @@ function App() {
               </button>
 
               <div className="selected-tray">
+                {itineraryBuilt && selectedStops.length > 1 && <p className="selected-sort-label">Drag to sort</p>}
                 <div className="selected-tray-row">
                   {selectedStops.map((stop, i) => (
                     <article
@@ -1364,9 +2098,11 @@ function App() {
             <section className="builder-panel">
               {!itineraryBuilt ? (
                 <>
+                  {activeStop.name ? (
+                    <>
                   <header className="builder-panel-head">
                     <p className="rec-head-eyebrow">Suggestions · {String(cardIndex + 1).padStart(2, "0")} / {String(suggestionStops.length || 1).padStart(2, "0")}</p>
-                    <h2 className="rec-head-dest">Choose your stops</h2>
+                    <h2 className="rec-head-dest">Choose your suggestions</h2>
                   </header>
 
                   <article
@@ -1375,7 +2111,7 @@ function App() {
                     onTouchEnd={(e) => {
                       const dx = e.changedTouches[0].clientX - (swipeStartXRef.current ?? e.changedTouches[0].clientX);
                       if (dx > 64) addStopToItinerary(activeStop);
-                      if (dx < -64) setCardIndex((i) => Math.min(i + 1, Math.max(suggestionStops.length - 1, 0)));
+                      if (dx < -64) discardCurrentStop();
                       swipeStartXRef.current = null;
                     }}
                   >
@@ -1390,41 +2126,83 @@ function App() {
                     <div className="rec-card-inner suggestion-inner">
                       <p className="rec-card-cat">{activeStop.category || "Suggestion"}</p>
                       <div className="rec-card-timerow">
-                        {activeStop.rating && <span className="rec-card-pill rec-pill-rating">★ {activeStop.rating}</span>}
-                        {activeStop.openNow !== undefined && <span className="rec-card-pill">{activeStop.openNow ? "Open" : "Check hours"}</span>}
-                        {activeStop.time && <span className="rec-card-pill">{activeStop.time}</span>}
+                        {activeMoodMatches.map((mood) => <span className="rec-card-pill mood-pill" key={mood.id}>{mood.title}</span>)}
+                        {priceRange(activeStop.priceLevel) && <span className="rec-card-pill budget-pill">{priceLabel(activeStop.priceLevel)} · {priceRange(activeStop.priceLevel)}</span>}
                       </div>
                       <h3 className="rec-card-name">{activeStop.name || "More suggestions are loading"}</h3>
-                      {activeStop.routeFromPrevious && <small className="rec-card-route rec-card-route-top">{activeStop.routeFromPrevious}</small>}
                       {activeStop.address && (
                         <a className="rec-card-addr" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(activeStop.address)}`} target="_blank" rel="noreferrer">
                           <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M8 1.5C5.515 1.5 3.5 3.515 3.5 6c0 3.375 4.5 8.5 4.5 8.5S12.5 9.375 12.5 6c0-2.485-2.015-4.5-4.5-4.5z" stroke="currentColor" strokeWidth="1.5"/><circle cx="8" cy="6" r="1.5" stroke="currentColor" strokeWidth="1.5"/></svg>
                           {activeStop.address}
                         </a>
                       )}
-                      <p className="rec-card-desc">{activeStop.description}</p>
-                      {activeStop.bookingUrl && (
-                        <a className="rec-card-book" href={activeStop.bookingUrl} target="_blank" rel="noreferrer">
-                          Check availability and book
-                          <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                        </a>
+                      <p className="rec-card-desc">{activePresentation.description}</p>
+                      {activeDiscoveryLinks.length > 0 && (
+                        <div className="source-links suggestion-source-row">
+                          {activeDiscoveryLinks.map((source) => (
+                            <a href={source.url} target="_blank" rel="noreferrer" key={source.url} className="source-link-social">
+                              Found on {source.label}
+                            </a>
+                          ))}
+                        </div>
                       )}
+                      <div className="suggestion-evidence">
+                        <section>
+                          <h4><a href={activeStop.mapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(activeStop.name || "")}`} target="_blank" rel="noreferrer">OPEN HOURS →</a></h4>
+                          <p>{openingSummary(activeStop, date) || activeStop.openTimingGuidance || "Confirm hours before visiting."}</p>
+                          {specialTimingNote(activeStop) && <p className="evidence-note">{specialTimingNote(activeStop)}</p>}
+                          {openTableBookingUrl(activeStop, destination, date, planFor) && (
+                            <a className="rec-card-book evidence-book-link" href={openTableBookingUrl(activeStop, destination, date, planFor)} target="_blank" rel="noreferrer">
+                              Find a table on OpenTable
+                              <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                            </a>
+                          )}
+                        </section>
+                        <section>
+                          <h4><a href={activeStop.mapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(activeStop.name || "")}`} target="_blank" rel="noreferrer">WHAT PEOPLE SAY →</a></h4>
+                          {activeReviews.length ? (
+                            <div className="review-quotes">
+                              {activeReviews.slice(0, 1).map((review, index) => <blockquote key={`${review.author || "review"}-${index}`}>“{review.quote || review.text}”{review.author && <cite>— {review.author}</cite>}</blockquote>)}
+                            </div>
+                          ) : activeStop.rating ? (
+                            <p className="google-review-summary">★ {activeStop.rating}{activeStop.userRatingCount ? ` from ${Number(activeStop.userRatingCount).toLocaleString()} Google reviews` : " on Google Maps"}.</p>
+                          ) : <p><a href={activeStop.mapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(activeStop.name || "")}`} target="_blank" rel="noreferrer">Read recent reviews on Google Maps</a>.</p>}
+                        </section>
+                      </div>
                     </div>
 
                     <div className="suggestion-actions">
                       <button type="button" onClick={() => addStopToItinerary(activeStop)}>Add to plan</button>
-                      <button type="button" onClick={() => setCardIndex((i) => Math.min(i + 1, Math.max(suggestionStops.length - 1, 0)))}>Skip</button>
+                      <button type="button" onClick={discardCurrentStop}>Skip</button>
                     </div>
                   </article>
                   {selectedStops.length > 0 && (
-                    <button type="button" className="builder-create-plan" onClick={createItineraryFromSelected}>Create plan</button>
+                    <button type="button" className="builder-create-plan" onClick={runAiOutdo} disabled={outdoLoading}>
+                      {outdoLoading && <span className="button-spinner" aria-hidden="true" />} {outdoLoading ? "Generating itinerary…" : "Generate itinerary"}
+                    </button>
+                  )}
+                    </>
+                  ) : (
+                    <section className="suggestion-refine-card">
+                      <p className="rec-head-eyebrow">YOU’VE SEEN EVERY SUGGESTION</p>
+                      <h2>Want more suggestions or changes?</h2>
+                      <p>Tell us what was missing and we’ll research another set without losing the places you selected.</p>
+                      <form onSubmit={generateMoreSuggestions}>
+                        <input value={refinement} onChange={(event) => setRefinement(event.target.value)} placeholder="Try ‘more live music, less walking’" aria-label="Changes for new suggestions" />
+                        <button className="btn-accent" type="submit" disabled={!refinement.trim() || isRefining}>{isRefining && <span className="button-spinner" aria-hidden="true" />} {isRefining ? "Researching…" : "Find more"}</button>
+                      </form>
+                      {selectedStops.length > 0 && <button type="button" className="refine-itinerary-button" onClick={runAiOutdo} disabled={outdoLoading}>{outdoLoading && <span className="button-spinner" aria-hidden="true" />} {outdoLoading ? "Arranging…" : "View selected itinerary"}</button>}
+                      {error && <p className="refine-error">{error}</p>}
+                      <button type="button" className="text-button" onClick={() => setCardIndex(0)}>Review these suggestions again</button>
+                    </section>
                   )}
                 </>
               ) : (
                 <section className="builder-timeline">
                   <header className="builder-panel-head">
-                    <p className="rec-head-eyebrow">{selectedStops.length} stops · {itinerary?.dates || prettyDate(date)}</p>
+                    <p className="rec-head-eyebrow">{selectedStops.length} {selectedStops.length === 1 ? "stop" : "stops"} · {itinerary?.dates || prettyDate(date)}</p>
                     <h2 className="rec-head-dest">Your itinerary</h2>
+                    {itinerary?.optimization?.distanceMeters > 0 && <p className="itinerary-total-distance">Total distance: {formatTripDistance(itinerary.optimization.distanceMeters, destination)}</p>}
                     <div className="builder-final-actions">
                       {tripMapsUrl && <a className="rec-card-book builder-maps-link" href={tripMapsUrl} target="_blank" rel="noreferrer">Google Maps</a>}
                       <div className="builder-icon-stack">
@@ -1437,7 +2215,7 @@ function App() {
                         <button className="builder-icon-btn" type="button" onClick={() => goTo("mood")} aria-label="Edit vibe" data-label="Edit vibe">
                           <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 20h4l10.5-10.5a2.8 2.8 0 0 0-4-4L4 16v4z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"/><path d="M13 7l4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
                         </button>
-                        <button className="builder-icon-btn" type="button" onClick={generatePlan} aria-label="Regenerate" data-label="Regenerate">
+                        <button className="builder-icon-btn" type="button" onClick={() => generatePlan()} aria-label="Regenerate" data-label="Regenerate">
                           <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M20 6v5h-5M4 18v-5h5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><path d="M18.5 10a7 7 0 0 0-12-3M5.5 14a7 7 0 0 0 12 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
                         </button>
                       </div>
@@ -1445,22 +2223,32 @@ function App() {
                   </header>
                   <div className="timeline compact-timeline">
                     {itineraryStops.map((stop, i) => (
-                      <article className={`stop${i === activeTimelineIndex ? " stop-active" : ""}`} key={`${stop.name}-${i}`} ref={(node) => { timelineRefs.current[i] = node; }} data-index={i}>
+                      <article
+                        className={`stop${i === activeTimelineIndex ? " stop-active" : ""}`}
+                        key={`${stop.name}-${i}`}
+                        ref={(node) => { timelineRefs.current[i] = node; }}
+                        data-index={i}
+                      >
                         <div className="s-pin"><span className="s-pin-index">{String(i + 1).padStart(2, "0")}</span></div>
                         <div className="s-body">
                           <p className="s-cat">{stop.category}</p>
-                          <h3>{stop.time || "Flexible"} <span>{stop.period}</span></h3>
                           <h4>{stop.name}</h4>
                           <div className="place-meta prominent">
                             {stop.rating && <a className="rating-pill" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(stop.googlePlaceName || stop.name)}`} target="_blank" rel="noreferrer">★ {stop.rating}</a>}
-                            {stop.openNow !== undefined && <span>{stop.openNow ? "Open now" : "Hours vary"}</span>}
+                            {(() => {
+                              const timing = scheduledOpenStatus(stop, date);
+                              const special = stop.specialHoursMetadata?.hasExceptionalHours || stop.specialHoursStatus === "special";
+                              return <span className={special ? "special-hours-pill" : ""}>{special ? `Special hours · ${timing.label}` : timing.label}</span>;
+                            })()}
+                            {priceRange(stop.priceLevel) && <span>{priceRange(stop.priceLevel)}</span>}
                             {stop.address && <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(stop.address)}`} target="_blank" rel="noreferrer">{stop.address}</a>}
                           </div>
-                          <p>{stop.description}</p>
-                          <small>{stop.routeFromPrevious}</small>
-                          {stop.bookingUrl && (
-                            <a className="rec-card-book itinerary-book-link" href={stop.bookingUrl} target="_blank" rel="noreferrer">
-                              Check availability and book
+                          <p>{concisePlaceDescription(stop.description)}</p>
+                          {i > 0 && (stop.routeDistanceMeters != null || stop.routeFromPrevious) && <small className="consecutive-leg">{stop.routeDistanceMeters != null ? `${formatTripDistance(stop.routeDistanceMeters, destination)} from the previous stop${stop.routeDurationSeconds ? ` · about ${formatTripDuration(stop.routeDurationSeconds)}` : ""}` : stop.routeFromPrevious}</small>}
+                          {(specialTimingNote(stop) || stop.travelTip || stop.bestTimeToVisit || stop.seasonalNote) && <p className={`opening-guidance${specialTimingNote(stop) ? " special-hours-guidance" : ""}`}>{specialTimingNote(stop) || stop.travelTip || stop.bestTimeToVisit || stop.seasonalNote}</p>}
+                          {openTableBookingUrl(stop, destination, date, planFor) && (
+                            <a className="rec-card-book itinerary-book-link" href={openTableBookingUrl(stop, destination, date, planFor)} target="_blank" rel="noreferrer">
+                              Find a table on OpenTable
                               <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
                             </a>
                           )}
@@ -1508,7 +2296,7 @@ function App() {
                 <button type="button" onClick={() => removeSelectedStop(i)}>×</button>
               </article>
             ))}
-            <button className="rec-mbar-btn rec-mbar-primary" disabled={!selectedStops.length} onClick={createItineraryFromSelected}>Create plan</button>
+            {!itineraryBuilt && <button className="rec-mbar-btn rec-mbar-primary" disabled={!selectedStops.length || outdoLoading} onClick={runAiOutdo}>{outdoLoading && <span className="button-spinner" aria-hidden="true" />} {outdoLoading ? "Generating itinerary…" : "Generate itinerary"}</button>}
           </div>
         </div>
       )}
@@ -1520,7 +2308,7 @@ function App() {
             <div className="spark">✦</div>
             <p className="label">Early access</p>
             <h2>Like this idea?</h2>
-            <p>outdone is running in demo mode right now. AI credits are limited, so fallback plans keep the experience alive while the product evolves.</p>
+            <p>outdone is running in demo mode right now. Live recommendations require successful Gemini and Google Places research, so generation pauses clearly when those services are unavailable.</p>
             <p>Subscribe to get updates when live personalization, better Google Places photos, saved preferences, and richer planning are ready.</p>
             <form className="subscribe-form" onSubmit={(event) => {
               event.preventDefault();
@@ -1549,7 +2337,7 @@ function LegalPage({ eyebrow, title, sections, onBack }) {
   return (
     <main className="screen legal-screen on">
       <section className="legal-card">
-        <button className="legal-back" type="button" onClick={onBack}>← Back to sign in</button>
+        <button className="legal-back hover-arrow hover-arrow-back" type="button" onClick={onBack}>Back to sign in</button>
         <p className="label">{eyebrow}</p>
         <h2>{title}</h2>
         <p className="legal-updated">Last updated: July 9, 2026</p>
@@ -1579,4 +2367,13 @@ function Select({ label, value, setValue, options }) {
   );
 }
 
-createRoot(document.getElementById("root")).render(<App />);
+// Vite HMR re-runs this module's top-level code on every edit. Without
+// reusing the root across reloads, createRoot() mounts a second <App/>
+// onto the same DOM node each time, stacking duplicate content on screen.
+const rootContainer = document.getElementById("root");
+const root = import.meta.hot?.data.root || createRoot(rootContainer);
+if (import.meta.hot) {
+  import.meta.hot.data.root = root;
+  import.meta.hot.accept();
+}
+root.render(<App />);

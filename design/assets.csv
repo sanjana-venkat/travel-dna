@@ -1,0 +1,6 @@
+id,role,type,description,size/ratio,style line ref,source
+flight-sky-background,Level 1 sky environment behind gameplay,background,Cinematic flight above a layered cloud deck at golden hour,16:9,STYLE_FORMULA,generate
+flight-coast-background,Level 2 ocean environment behind gameplay,background,Cinematic low flight above a dramatic coastline and open water,16:9,STYLE_FORMULA,generate
+flight-land-background,Level 3 land environment behind gameplay,background,Cinematic low flight above a varied green and amber landscape,16:9,STYLE_FORMULA,generate
+player-aircraft,Player-controlled aircraft in the foreground,sprite,Compact white travel plane with one coral tail accent,1:1,STYLE_FORMULA,generate
+flight-gate,Primary collectible and navigation target,sprite,Warm amber aviation checkpoint ring with four small guide lights,1:1,STYLE_FORMULA,generate
